@@ -35,6 +35,9 @@ class CFNode:
 
 
 class ControlFlowGraph:
+    def __init__(self, verbose=False):
+        self.verbose = verbose
+
     def generate(self, source_text):
         # initialize graph state
         self.nodes = {}
@@ -46,8 +49,6 @@ class ControlFlowGraph:
 
         # parse syntax tree
         ast_node = ast.parse(source_text)
-
-        astpretty.pprint(ast_node, indent='  ')
 
         # compute control flow graph
         parents = self.walk(ast_node, {self.cn_start})
@@ -73,7 +74,8 @@ class ControlFlowGraph:
         return cn
 
     def walk(self, ast_node, parents):
-        # print('walk', ast_node.__class__.__name__, {p.id for p in parents})
+        if self.verbose:
+            print('walk', ast_node.__class__.__name__, {p.id for p in parents})
 
         # route node to handler based on node type
         fname = 'on_%s' % ast_node.__class__.__name__.lower()
@@ -83,6 +85,7 @@ class ControlFlowGraph:
             return parents
 
     def get_function_at(self, lineno):
+        # find most recently defined function by line number
         func_name = None
         func_lineno = 0
 
@@ -402,13 +405,31 @@ class ControlFlowGraph:
 
         return G
 
+    def print_nodes(self):
+        print('%4s %8s %20s %12s %8s' % (
+            'id',
+            'lineno',
+            'label',
+            'type',
+            'parents'))
+
+        for cn in self.nodes.values():
+            print('%4d %8d %20s %12s %8s' % (
+                cn.id,
+                cn.lineno,
+                cn.label,
+                cn.type,
+                ','.join('%d' % (p.id) for p in cn.parents)))
+
 
 
 if __name__ == '__main__':
     # parse command-line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('source_files', help='Python source files to visualize', nargs='+')
+    parser.add_argument('source_files', help='Python source files to visualize', nargs='*')
+    parser.add_argument('--source', help='Python source string to visualize')
     parser.add_argument('--format', help='output format (raw, png)', default='png')
+    parser.add_argument('--print-ast', help='print abstract syntax tree', action='store_true')
     parser.add_argument('--verbose', help='print verbose output', action='store_true')
     parser.add_argument('--exclude-start-stop', help='exclude start/stop nodes', action='store_true')
     parser.add_argument('--include-calls', help='include caller/callee edges', action='store_true')
@@ -416,34 +437,20 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    for source_file in args.source_files:
-        print(source_file)
-
-        # load source file
-        with open(source_file, 'r') as f:
-            source_text = f.read().strip()
+    # print flow graph for source string if specified
+    if args.source:
+        # print ast if specified
+        if args.print_ast:
+            astpretty.pprint(ast.parse(args.source), indent='  ')
 
         # generate control flow graph
-        G = ControlFlowGraph()
-        G.generate(source_text)
+        G = ControlFlowGraph(verbose=args.verbose)
+        G.generate(args.source)
 
         # print control flow nodes
         if args.verbose:
             print()
-            print('%4s %8s %20s %12s %8s' % (
-                'id',
-                'lineno',
-                'label',
-                'type',
-                'parents'))
-
-            for cn in G.nodes.values():
-                print('%4d %8d %20s %12s %8s' % (
-                    cn.id,
-                    cn.lineno,
-                    cn.label,
-                    cn.type,
-                    ','.join('%d' % (p.id) for p in cn.parents)))
+            G.print_nodes()
 
         # convert graph to dot format
         G_dot = G.to_dot(
@@ -451,6 +458,39 @@ if __name__ == '__main__':
             include_hidden=args.include_hidden,
             include_start_stop=not args.exclude_start_stop)
 
+        # print dot graph if specified
+        if args.verbose:
+            print()
+            print(G_dot.to_string())
+
+    # generate flow graph for each source file
+    for source_file in args.source_files:
+        print(source_file)
+
+        # load source file
+        with open(source_file, 'r') as f:
+            source_text = f.read().strip()
+
+        # print ast if specified
+        if args.print_ast:
+            astpretty.pprint(ast.parse(source_text), indent='  ')
+
+        # generate control flow graph
+        G = ControlFlowGraph(verbose=args.verbose)
+        G.generate(source_text)
+
+        # print control flow nodes
+        if args.verbose:
+            print()
+            G.print_nodes()
+
+        # convert graph to dot format
+        G_dot = G.to_dot(
+            include_calls=args.include_calls,
+            include_hidden=args.include_hidden,
+            include_start_stop=not args.exclude_start_stop)
+
+        # print dot graph if specified
         if args.verbose:
             print()
             print(G_dot.to_string())
