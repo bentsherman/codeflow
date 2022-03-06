@@ -103,7 +103,7 @@ digraph G {
 0 [label=start, peripheries=2, shape=oval];
 1 [label="a = 1", peripheries=1, shape=rectangle];
 0 -> 1  [color=black];
-2 [label="(a > 1)", peripheries=1, shape=diamond];
+2 [label="if (a > 1)", peripheries=1, shape=diamond];
 1 -> 2  [color=black];
 4 [label="a = 1", peripheries=1, shape=rectangle];
 2 -> 4  [color=blue];
@@ -164,7 +164,7 @@ digraph G {
 2 [label="while (x > 0)", peripheries=1, shape=diamond];
 1 -> 2  [color=black];
 9 -> 2  [color=black];
-5 [label="(x > 1)", peripheries=1, shape=diamond];
+5 [label="if (x > 1)", peripheries=1, shape=diamond];
 2 -> 5  [color=blue];
 7 [label=break, peripheries=1, shape=rectangle];
 5 -> 7  [color=blue];
@@ -200,7 +200,7 @@ digraph G {
 1 -> 2  [color=black];
 9 -> 2  [color=black];
 7 -> 2  [color=black];
-5 [label="(x > 1)", peripheries=1, shape=diamond];
+5 [label="if (x > 1)", peripheries=1, shape=diamond];
 2 -> 5  [color=blue];
 7 [label=continue, peripheries=1, shape=rectangle];
 5 -> 7  [color=blue];
@@ -262,7 +262,7 @@ digraph G {
 2 [label="for i in vals", peripheries=1, shape=diamond];
 1 -> 2  [color=black];
 9 -> 2  [color=black];
-5 [label="(x > 1)", peripheries=1, shape=diamond];
+5 [label="if (x > 1)", peripheries=1, shape=diamond];
 2 -> 5  [color=blue];
 7 [label=break, peripheries=1, shape=rectangle];
 5 -> 7  [color=blue];
@@ -298,7 +298,7 @@ digraph G {
 1 -> 2  [color=black];
 9 -> 2  [color=black];
 7 -> 2  [color=black];
-5 [label="(x > 1)", peripheries=1, shape=diamond];
+5 [label="if (x > 1)", peripheries=1, shape=diamond];
 2 -> 5  [color=blue];
 7 [label=continue, peripheries=1, shape=rectangle];
 5 -> 7  [color=blue];
@@ -331,7 +331,7 @@ digraph G {
 1 [label="x = 1", peripheries=1, shape=rectangle];
 0 -> 1  [color=black];
 2 [label="def my_fn(v1, v2)", peripheries=2, shape=oval];
-3 [label="(v1 > v2)", peripheries=1, shape=diamond];
+3 [label="if (v1 > v2)", peripheries=1, shape=diamond];
 2 -> 3  [color=black];
 5 [label="return v1", peripheries=1, shape=rectangle];
 3 -> 5  [color=blue];
@@ -363,7 +363,7 @@ my_fn(3, 4)
 digraph G {
 0 [label=start, peripheries=2, shape=oval];
 1 [label="def my_fn(v1, v2)", peripheries=2, shape=oval];
-2 [label="(v1 > v2)", peripheries=1, shape=diamond];
+2 [label="if (v1 > v2)", peripheries=1, shape=diamond];
 1 -> 2  [color=black];
 4 [label="return v1", peripheries=1, shape=rectangle];
 2 -> 4  [color=blue];

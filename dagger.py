@@ -250,7 +250,7 @@ class ControlFlowGraph:
 
         # append entry node
         cn_test = self.add_node(
-            ast_node.test,
+            label='if %s' % (aup.unparse(ast_node.test).strip()),
             type='if',
             parents=parents)
 
@@ -426,7 +426,7 @@ class ControlFlowGraph:
             'parents'))
 
         for cn in self.nodes.values():
-            print('%4d %8d %20s %12s %8s' % (
+            print('%4d %20s %12s %8s' % (
                 cn.id,
                 cn.label,
                 cn.type,
