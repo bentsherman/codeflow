@@ -114,8 +114,8 @@ class ControlFlowGraph:
                     stmt* body, expr* decorator_list, expr? returns,
                     string? type_comment)
         '''
-        # append entry node
-        cn_enter = self.add_node(
+        # append definition node
+        cn_def = self.add_node(
             lineno=ast_node.lineno,
             label='def %s(%s)' % (ast_node.name, ', '.join(a.arg for a in ast_node.args.args)),
             type='def')
@@ -124,10 +124,32 @@ class ControlFlowGraph:
         cn_returns = set()
 
         # save function def
-        self.functions[ast_node.name] = (ast_node.lineno, cn_enter, cn_returns)
+        self.functions[ast_node.name] = (ast_node.lineno, cn_def, cn_returns)
 
         # process each statement in function body
-        cn_body = {cn_enter}
+        cn_body = {cn_def}
+        for stmt in ast_node.body:
+            cn_body = self.walk(stmt, cn_body)
+
+        # return original parents
+        return parents
+
+    def on_classdef(self, ast_node, parents):
+        '''
+        ClassDef(identifier name,
+                 expr* bases,
+                 keyword* keywords,
+                 stmt* body,
+                 expr* decorator_list)
+        '''
+        # append definition node
+        cn_def = self.add_node(
+            lineno=ast_node.lineno,
+            label='class %s' % (ast_node.name),
+            type='def')
+
+        # process each statement in class body
+        cn_body = {cn_def}
         for stmt in ast_node.body:
             cn_body = self.walk(stmt, cn_body)
 
@@ -156,9 +178,6 @@ class ControlFlowGraph:
         '''
         Assign(expr* targets, expr value)
         '''
-        if len(ast_node.targets) > 1:
-            raise NotImplementedError('multiple assignment')
-
         parents = {self.add_node(ast_node, parents=parents)}
         parents = self.walk(ast_node.value, parents)
         return parents
@@ -314,20 +333,12 @@ class ControlFlowGraph:
         '''
         Call(expr func, expr* args, keyword* keywords)
         '''
-        # process func expression
-        mapper = {
-            ast.Name:      lambda f: f.id,
-            ast.Attribute: lambda f: f.attr,
-            ast.Call:      lambda f: f.func
-        }
-        func_name = ast_node
-
-        while not isinstance(func_name, str):
-            func_name = mapper[type(func_name)](func_name)
-
         # add parents as callers of this function
-        _, cn_enter, _ = self.functions[func_name]
-        cn_enter.add_callers(*parents)
+        func_name = aup.unparse(ast_node.func).strip()
+
+        if func_name in self.functions:
+            _, cn_def, _ = self.functions[func_name]
+            cn_def.add_callers(*parents)
 
         # process each arg
         for arg in ast_node.args:
