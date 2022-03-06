@@ -42,7 +42,9 @@ class ControlFlowGraph:
         # initialize graph state
         self.nodes = {}
         self.functions = {}
-        self.loop_stack = []
+        self.stack_class = []
+        self.stack_function = []
+        self.stack_loop = []
 
         # append start node
         self.cn_start = self.add_node(lineno=0, label='start', type='start')
@@ -84,20 +86,6 @@ class ControlFlowGraph:
         else:
             return parents
 
-    def get_function_at(self, lineno):
-        # find most recently defined function by line number
-        func_name = None
-        func_lineno = 0
-
-        for f_name in self.functions:
-            f_lineno, _, _ = self.functions[f_name]
-
-            if func_lineno < f_lineno <= lineno:
-                func_name = f_name
-                func_lineno = f_lineno
-
-        return func_name
-
     def on_module(self, ast_node, parents):
         '''
         Module(stmt* body, type_ignore* type_ignores)
@@ -114,22 +102,35 @@ class ControlFlowGraph:
                     stmt* body, expr* decorator_list, expr? returns,
                     string? type_comment)
         '''
+        # construct function name
+        if len(self.stack_class) > 0:
+            class_name = self.stack_class[-1]
+            func_name = '%s.%s' % (class_name, ast_node.name)
+        else:
+            func_name = ast_node.name
+
         # append definition node
         cn_def = self.add_node(
             lineno=ast_node.lineno,
-            label='def %s(%s)' % (ast_node.name, ', '.join(a.arg for a in ast_node.args.args)),
+            label='def %s(%s)' % (func_name, ', '.join(a.arg for a in ast_node.args.args)),
             type='def')
 
         # initialize return nodes
         cn_returns = set()
 
         # save function def
-        self.functions[ast_node.name] = (ast_node.lineno, cn_def, cn_returns)
+        self.functions[func_name] = (ast_node.lineno, cn_def, cn_returns)
+
+        # enter function body
+        self.stack_function.append(func_name)
 
         # process each statement in function body
         cn_body = {cn_def}
         for stmt in ast_node.body:
             cn_body = self.walk(stmt, cn_body)
+
+        # exit function body
+        self.stack_function.pop()
 
         # return original parents
         return parents
@@ -143,15 +144,22 @@ class ControlFlowGraph:
                  expr* decorator_list)
         '''
         # append definition node
+        class_name = ast_node.name
         cn_def = self.add_node(
             lineno=ast_node.lineno,
-            label='class %s' % (ast_node.name),
+            label='class %s' % (class_name),
             type='def')
+
+        # enter class body
+        self.stack_class.append(class_name)
 
         # process each statement in class body
         cn_body = {cn_def}
         for stmt in ast_node.body:
             cn_body = self.walk(stmt, cn_body)
+
+        # exit class body
+        self.stack_class.pop()
 
         # return original parents
         return parents
@@ -161,7 +169,7 @@ class ControlFlowGraph:
         Return(expr? value)
         '''
         # retrieve function def
-        func_name = self.get_function_at(ast_node.lineno)
+        func_name = self.stack_function[-1]
         _, _, cn_returns = self.functions[func_name]
 
         # process return value
@@ -195,7 +203,7 @@ class ControlFlowGraph:
 
         # enter loop body
         cn_exits = {self.add_node(lineno=0, label='', type='if_false', parents={cn_enter})}
-        self.loop_stack.append([cn_enter, cn_exits])
+        self.stack_loop.append([cn_enter, cn_exits])
 
         # process each statement in the loop body
         parents = {self.add_node(lineno=0, label='', type='if_true', parents={cn_enter})}
@@ -206,7 +214,7 @@ class ControlFlowGraph:
         cn_enter.add_parents(*parents)
 
         # exit loop body
-        self.loop_stack.pop()
+        self.stack_loop.pop()
 
         return cn_exits
 
@@ -223,7 +231,7 @@ class ControlFlowGraph:
 
         # enter loop body
         cn_exits = {self.add_node(lineno=0, label='', type='if_false', parents={cn_enter})}
-        self.loop_stack.append([cn_enter, cn_exits])
+        self.stack_loop.append([cn_enter, cn_exits])
 
         # process each statement in the loop body
         parents = {self.add_node(lineno=0, label='', type='if_true', parents={cn_enter})}
@@ -234,7 +242,7 @@ class ControlFlowGraph:
         cn_enter.add_parents(*parents)
 
         # exit loop body
-        self.loop_stack.pop()
+        self.stack_loop.pop()
 
         # return loop exit nodes
         return cn_exits
@@ -284,7 +292,7 @@ class ControlFlowGraph:
         Break
         '''
         # retrieve parent loop
-        _, cn_exits = self.loop_stack[-1]
+        _, cn_exits = self.stack_loop[-1]
 
         # append break node to loop exit nodes
         cn_break = self.add_node(ast_node, parents=parents)
@@ -298,7 +306,7 @@ class ControlFlowGraph:
         Continue
         '''
         # retrieve parent loop
-        cn_enter, _ = self.loop_stack[-1]
+        cn_enter, _ = self.stack_loop[-1]
 
         # connect continue node to loop entry
         cn_continue = self.add_node(ast_node, parents=parents)
