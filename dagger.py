@@ -28,8 +28,8 @@ class CFNode:
             self.parents.add(other)
 
     def add_callers(self, *args):
-        for v in args:
-            self.callers.add(v)
+        for other in args:
+            self.callers.add(other)
 
 
 
@@ -78,9 +78,9 @@ class ControlFlowGraph:
             print('walk', ast_node.__class__.__name__, {p.id for p in parents})
 
         # route node to handler based on node type
-        fname = 'on_%s' % ast_node.__class__.__name__.lower()
-        if hasattr(self, fname):
-            return getattr(self, fname)(ast_node, parents)
+        handler = 'on_%s' % ast_node.__class__.__name__.lower()
+        if hasattr(self, handler):
+            return getattr(self, handler)(ast_node, parents)
         else:
             return parents
 
@@ -132,6 +132,14 @@ class ControlFlowGraph:
         # return original parents
         return parents
 
+    def on_asyncfunctiondef(self, ast_node, parents):
+        '''
+        AsyncFunctionDef(identifier name, arguments args,
+                         stmt* body, expr* decorator_list, expr? returns,
+                         string? type_comment)
+        '''
+        return self.on_functiondef(ast_node, parents)
+
     def on_classdef(self, ast_node, parents):
         '''
         ClassDef(identifier name,
@@ -140,17 +148,11 @@ class ControlFlowGraph:
                  stmt* body,
                  expr* decorator_list)
         '''
-        # append definition node
-        class_name = ast_node.name
-        cn_def = self.add_node(
-            label='class %s' % (class_name),
-            type='def')
-
         # enter class body
-        self.stack_class.append(class_name)
+        self.stack_class.append(ast_node.name)
 
         # process each statement in class body
-        cn_body = {cn_def}
+        cn_body = set()
         for stmt in ast_node.body:
             cn_body = self.walk(stmt, cn_body)
 
@@ -178,9 +180,23 @@ class ControlFlowGraph:
         # return has no immediate children
         return set()
 
+    def on_delete(self, ast_node, parents):
+        '''
+        Delete(expr* targets)
+        '''
+        return {self.add_node(ast_node, parents=parents)}
+
     def on_assign(self, ast_node, parents):
         '''
         Assign(expr* targets, expr value)
+        '''
+        parents = {self.add_node(ast_node, parents=parents)}
+        parents = self.walk(ast_node.value, parents)
+        return parents
+
+    def on_augassign(self, ast_node, parents):
+        '''
+        AugAssign(expr target, operator op, expr value)
         '''
         parents = {self.add_node(ast_node, parents=parents)}
         parents = self.walk(ast_node.value, parents)
@@ -212,6 +228,12 @@ class ControlFlowGraph:
         self.stack_loop.pop()
 
         return cn_exits
+
+    def on_asyncfor(self, ast_node, parents):
+        '''
+        AsyncFor(expr target, expr iter, stmt* body, stmt* orelse, string? type_comment)
+        '''
+        return self.on_for(ast_node, parents)
 
     def on_while(self, ast_node, parents):
         '''
@@ -266,6 +288,66 @@ class ControlFlowGraph:
 
         return cn_if | cn_else
 
+    def on_with(self, ast_node, parents):
+        '''
+        With(withitem* items, stmt* body, string? type_comment)
+        '''
+        # append entry node
+        cn_with = self.add_node(
+            label='with %s' % (', '.join(aup.unparse(item).strip() for item in ast_node.items)),
+            parents=parents)
+
+        # process each statement in the with body
+        parents = {cn_with}
+        for stmt in ast_node.body:
+            parents = self.walk(stmt, parents)
+
+        return parents
+
+    def on_asyncwith(self, ast_node, parents):
+        '''
+        AsyncWith(withitem* items, stmt* body, string? type_comment)
+        '''
+        return self.on_with(ast_node, parents)
+
+    def on_raise(self, ast_node, parents):
+        '''
+        Raise(expr? exc, expr? cause)
+        '''
+        return {self.add_node(ast_node, parents=parents)}
+
+    def on_try(self, ast_node, parents):
+        '''
+        Try(stmt* body, excepthandler* handlers, stmt* orelse, stmt* finalbody)
+        '''
+        # process each statement in the try body
+        for stmt in ast_node.body:
+            parents = self.walk(stmt, parents)
+
+        # process each statement in the finally body
+        for stmt in ast_node.finalbody:
+            parents = self.walk(stmt, parents)
+
+        return parents
+
+    def on_assert(self, ast_node, parents):
+        '''
+        Assert(expr test, expr? msg)
+        '''
+        return {self.add_node(ast_node, parents=parents)}
+
+    def on_import(self, ast_node, parents):
+        '''
+        Import(alias* names)
+        '''
+        return {self.add_node(ast_node, parents=parents)}
+
+    def on_importfrom(self, ast_node, parents):
+        '''
+        ImportFrom(identifier? module, alias* names, int? level)
+        '''
+        return {self.add_node(ast_node, parents=parents)}
+
     def on_expr(self, ast_node, parents):
         '''
         Expr(expr body)
@@ -278,8 +360,7 @@ class ControlFlowGraph:
         '''
         Pass
         '''
-        parents = {self.add_node(ast_node, parents=parents)}
-        return parents
+        return {self.add_node(ast_node, parents=parents)}
 
     def on_break(self, ast_node, parents):
         '''
@@ -313,9 +394,9 @@ class ControlFlowGraph:
         '''
         BinOp(expr left, operator op, expr right)
         '''
-        cn_left = self.walk(ast_node.left, parents)
-        cn_right = self.walk(ast_node.right, cn_left)
-        return cn_right
+        parents = self.walk(ast_node.left, parents)
+        parents = self.walk(ast_node.right, parents)
+        return parents
 
     def on_unaryop(self, ast_node, parents):
         '''
@@ -327,9 +408,9 @@ class ControlFlowGraph:
         '''
         Compare(expr left, cmpop* ops, expr* comparators)
         '''
-        cn_left = self.walk(ast_node.left, parents)
-        cn_right = self.walk(ast_node.comparators[0], cn_left)
-        return cn_right
+        parents = self.walk(ast_node.left, parents)
+        parents = self.walk(ast_node.comparators[0], parents)
+        return parents
 
     def on_call(self, ast_node, parents):
         '''
