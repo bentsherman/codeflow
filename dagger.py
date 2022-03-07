@@ -13,7 +13,7 @@ class CFNode:
     :param id       node id in the control flow graph
     :param label    node label, usually the source text
     :param type     node type, used to control visual properties
-    :param parents  set of nodes that directly precede this node in the control flow
+    :param preds    set of nodes that directly precede this node in the control flow
     :param callers  set of nodes that call this node (if it is callable)
 
     The node type can be one of the following:
@@ -24,11 +24,11 @@ class CFNode:
     - start:    global start node
     - stop:     global stop end
     '''
-    def __init__(self, id, label='', type=None, parents=set()):
+    def __init__(self, id, label='', type=None, preds=set()):
         self.id = id
         self.label = label
         self.type = type
-        self.parents = parents
+        self.preds = preds
         self.callers = set()
 
     def __hash__(self):
@@ -40,9 +40,9 @@ class CFNode:
     def is_hidden(self):
         return not self.label
 
-    def add_parents(self, *args):
+    def add_predecessors(self, *args):
         for other in args:
-            self.parents.add(other)
+            self.preds.add(other)
 
     def add_callers(self, *args):
         for other in args:
@@ -54,12 +54,10 @@ class ControlFlowGraph(ast.NodeVisitor):
     '''
     A control flow graph models the flow of execution through
     source code. Nodes represent individual statements, while edges
-    may represent one of the following relationships:
+    represent one of the following relationships:
 
-    - parent: a node is a parent of another node if it directly precedes
-              the other node in the flow of execution
-    - caller: a node is a caller of another node if it calls the other
-              node (the other node must be callable)
+    - predecessor: a node directly precedes another node in the flow of execution
+    - caller: a node that calls another node (must be callable)
     '''
     def __init__(self, verbose=False):
         self._verbose = verbose
@@ -76,7 +74,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         self._stack_class = []
         self._stack_function = []
         self._stack_loop = []
-        self._stack_parents = [set()]
+        self._stack_preds = [set()]
 
         # append start node
         self.add_node(label='start', type='start')
@@ -103,13 +101,13 @@ class ControlFlowGraph(ast.NodeVisitor):
             id,
             label=label if label is not None else aup.unparse(ast_node).strip(),
             type=type,
-            parents=self._stack_parents[-1])
+            preds=self._stack_preds[-1])
 
         # add node to graph
         self._nodes[id] = cn
 
         # update graph state
-        self._stack_parents[-1] = {cn}
+        self._stack_preds[-1] = {cn}
 
         return cn
 
@@ -120,7 +118,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         :param ast_node
         '''
         if self._verbose:
-            print('walk', ast_node.__class__.__name__, {p.id for p in self._stack_parents[-1]})
+            print('walk', ast_node.__class__.__name__, {p.id for p in self._stack_preds[-1]})
 
         super().visit(ast_node)
 
@@ -175,19 +173,19 @@ class ControlFlowGraph(ast.NodeVisitor):
                 shape=node_shape(cn),
                 peripheries=node_peripheries(cn)))
 
-            # connect parents to children
-            for cn_parent in cn.parents:
+            # connect predecessors to node
+            for cn_pred in cn.preds:
                 # get edge color
-                color = edge_color(cn_parent)
+                color = edge_color(cn_pred)
 
-                # skip hidden parents if enabled
+                # skip hidden predecessors if enabled
                 if not include_hidden:
-                    while cn_parent.is_hidden():
-                        cn_parent = list(cn_parent.parents)[0]
+                    while cn_pred.is_hidden():
+                        cn_pred = list(cn_pred.preds)[0]
 
-                # connect node to parent
+                # connect node to predecessor
                 G.add_edge(pydot.Edge(
-                    cn_parent.id,
+                    cn_pred.id,
                     cn.id,
                     color=color))
 
@@ -209,14 +207,14 @@ class ControlFlowGraph(ast.NodeVisitor):
             'id',
             'label',
             'type',
-            'parents'))
+            'preds'))
 
         for cn in self._nodes.values():
             print('%4d %20s %12s %8s' % (
                 cn.id,
                 cn.label,
                 cn.type,
-                ','.join('%d' % (p.id) for p in cn.parents)))
+                ','.join('%d' % (p.id) for p in cn.preds)))
 
 
     '''
@@ -238,7 +236,7 @@ class ControlFlowGraph(ast.NodeVisitor):
 
         # enter function body
         self._stack_function.append(func_name)
-        self._stack_parents.append(set())
+        self._stack_preds.append(set())
 
         # append definition node
         cn_def = self.add_node(
@@ -254,7 +252,7 @@ class ControlFlowGraph(ast.NodeVisitor):
 
         # exit function body
         self._stack_function.pop()
-        self._stack_parents.pop()
+        self._stack_preds.pop()
 
     def visit_AsyncFunctionDef(self, ast_node):
         '''
@@ -274,7 +272,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         '''
         # enter class body
         self._stack_class.append(ast_node.name)
-        self._stack_parents.append(set())
+        self._stack_preds.append(set())
 
         # append definition node
         self.add_node(
@@ -287,7 +285,7 @@ class ControlFlowGraph(ast.NodeVisitor):
 
         # exit class body
         self._stack_class.pop()
-        self._stack_parents.pop()
+        self._stack_preds.pop()
 
     def visit_Return(self, ast_node):
         '''
@@ -353,11 +351,11 @@ class ControlFlowGraph(ast.NodeVisitor):
             self.visit(stmt)
 
         # connect end of loop back to loop entry
-        cn_enter.add_parents(*self._stack_parents[-1])
+        cn_enter.add_predecessors(*self._stack_preds[-1])
 
         # exit loop body
         self._stack_loop.pop()
-        self._stack_parents[-1] = cn_exits
+        self._stack_preds[-1] = cn_exits
 
     def visit_AsyncFor(self, ast_node):
         '''
@@ -388,11 +386,11 @@ class ControlFlowGraph(ast.NodeVisitor):
             self.visit(stmt)
 
         # connect end of loop back to loop entry
-        cn_enter.add_parents(*self._stack_parents[-1])
+        cn_enter.add_predecessors(*self._stack_preds[-1])
 
         # exit loop body
         self._stack_loop.pop()
-        self._stack_parents[-1] = cn_exits
+        self._stack_preds[-1] = cn_exits
 
     def visit_If(self, ast_node):
         '''
@@ -407,13 +405,13 @@ class ControlFlowGraph(ast.NodeVisitor):
         self.visit(ast_node.test)
 
         # traverse each statement in the if branch
-        self._stack_parents.append(self._stack_parents[-1])
+        self._stack_preds.append(self._stack_preds[-1])
         self.add_node(label='', type='if_true')
 
         for stmt in ast_node.body:
             self.visit(stmt)
 
-        cn_if = self._stack_parents.pop()
+        cn_if = self._stack_preds.pop()
 
         # traverse each statement in the else branch
         self.add_node(label='', type='if_false')
@@ -421,8 +419,8 @@ class ControlFlowGraph(ast.NodeVisitor):
         for stmt in ast_node.orelse:
             self.visit(stmt)
 
-        cn_else = self._stack_parents[-1]
-        self._stack_parents[-1] = cn_if | cn_else
+        cn_else = self._stack_preds[-1]
+        self._stack_preds[-1] = cn_if | cn_else
 
     def visit_With(self, ast_node):
         '''
@@ -508,7 +506,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         cn_exits.add(self.add_node(ast_node))
 
         # break has no immediate children
-        self._stack_parents[-1] = set()
+        self._stack_preds[-1] = set()
 
     def visit_Continue(self, ast_node):
         '''
@@ -518,10 +516,10 @@ class ControlFlowGraph(ast.NodeVisitor):
         cn_enter, _ = self._stack_loop[-1]
 
         # connect continue node to loop entry
-        cn_enter.add_parents(self.add_node(ast_node))
+        cn_enter.add_predecessors(self.add_node(ast_node))
 
         # continue has no other children
-        self._stack_parents[-1] = set()
+        self._stack_preds[-1] = set()
 
 
     '''
@@ -532,11 +530,11 @@ class ControlFlowGraph(ast.NodeVisitor):
         '''
         Call(expr func, expr* args, keyword* keywords)
         '''
-        # add parents as callers of this function
+        # add predecessors as callers of this function
         func_name = aup.unparse(ast_node.func).strip()
 
         if func_name in self._functions:
-            self._functions[func_name].add_callers(*self._stack_parents[-1])
+            self._functions[func_name].add_callers(*self._stack_preds[-1])
 
         # traverse child nodes
         self.generic_visit(ast_node)
