@@ -26,27 +26,6 @@ digraph G {
 
 
 
-test_module = (
-"""
-pass
-pass
-""",
-
-"""
-digraph G {
-0 [label=start, peripheries=2, shape=oval];
-1 [label=pass, peripheries=1, shape=rectangle];
-0 -> 1  [color=black];
-2 [label=pass, peripheries=1, shape=rectangle];
-1 -> 2  [color=black];
-3 [label=stop, peripheries=2, shape=oval];
-2 -> 3  [color=black];
-}
-"""
-)
-
-
-
 test_expr = (
 """
 10
@@ -384,7 +363,6 @@ digraph G {
 def test():
     tests = [
         test_pass,
-        test_module,
         test_expr,
         test_assign,
         test_if,

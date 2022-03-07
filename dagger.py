@@ -50,7 +50,7 @@ class CFNode:
 
 
 
-class ControlFlowGraph:
+class ControlFlowGraph(ast.NodeVisitor):
     '''
     A control flow graph models the flow of execution through
     source code. Nodes represent individual statements, while edges
@@ -62,7 +62,7 @@ class ControlFlowGraph:
               node (the other node must be callable)
     '''
     def __init__(self, verbose=False):
-        self.verbose = verbose
+        self._verbose = verbose
 
     def generate(self, source_text):
         '''
@@ -71,65 +71,58 @@ class ControlFlowGraph:
         :param source_text
         '''
         # initialize graph state
-        self.nodes = {}
-        self.functions = {}
-        self.stack_class = []
-        self.stack_function = []
-        self.stack_loop = []
+        self._nodes = {}
+        self._functions = {}
+        self._stack_class = []
+        self._stack_function = []
+        self._stack_loop = []
+        self._stack_parents = [set()]
 
         # append start node
-        self.cn_start = self.add_node(label='start', type='start')
+        self.add_node(label='start', type='start')
 
-        # parse syntax tree
-        ast_node = ast.parse(source_text)
-
-        # compute control flow graph
-        parents = self.walk(ast_node, {self.cn_start})
+        # traverse abstract syntax tree of source text
+        self.visit(ast.parse(source_text))
 
         # append stop node
-        self.cn_stop = self.add_node(label='stop', type='stop', parents=parents)
+        self.add_node(label='stop', type='stop')
 
         return self
 
-    def add_node(self, ast_node=None, label=None, type=None, parents=set()):
+    def add_node(self, ast_node=None, label=None, type=None):
         '''
         Add a node to the control flow graph.
 
         :param ast_node
         :param label
         :param type
-        :param parents
         '''
         # create node
-        id = len(self.nodes)
+        id = len(self._nodes)
         cn = CFNode(
             id,
             label=label if label is not None else aup.unparse(ast_node).strip(),
             type=type,
-            parents=parents)
+            parents=self._stack_parents[-1])
 
         # add node to graph
-        self.nodes[id] = cn
+        self._nodes[id] = cn
+
+        # update graph state
+        self._stack_parents[-1] = {cn}
 
         return cn
 
-    def walk(self, ast_node, parents):
+    def visit(self, ast_node):
         '''
         Traverse a node in the abstract syntax tree of the source text.
 
         :param ast_node
-        :param parents
         '''
-        # print verbose output if specified
-        if self.verbose:
-            print('walk', ast_node.__class__.__name__, {p.id for p in parents})
+        if self._verbose:
+            print('walk', ast_node.__class__.__name__, {p.id for p in self._stack_parents[-1]})
 
-        # route node to handler based on node type
-        handler = 'on_%s' % ast_node.__class__.__name__.lower()
-        if hasattr(self, handler):
-            return getattr(self, handler)(ast_node, parents)
-        else:
-            return parents
+        super().visit(ast_node)
 
     def to_dot(self, include_calls=False, include_hidden=False, include_start_stop=True):
         '''
@@ -164,7 +157,7 @@ class ControlFlowGraph:
         G = pydot.Dot(graph_type='digraph')
 
         # skip start/stop nodes if enabled
-        nodes = self.nodes.values()
+        nodes = self._nodes.values()
 
         if not include_start_stop:
             nodes = {cn for cn in nodes if cn.type not in {'start', 'stop'}}
@@ -218,7 +211,7 @@ class ControlFlowGraph:
             'type',
             'parents'))
 
-        for cn in self.nodes.values():
+        for cn in self._nodes.values():
             print('%4d %20s %12s %8s' % (
                 cn.id,
                 cn.label,
@@ -227,31 +220,25 @@ class ControlFlowGraph:
 
 
     '''
-    The following section defines control flow handlers
-    for all statement types in the Python abstract grammar.
+    The following section defines custom visitor methods
+    for statement types in the Python abstract grammar.
     '''
-    def on_module(self, ast_node, parents):
-        '''
-        Module(stmt* body, type_ignore* type_ignores)
-        '''
-        # traverse each statement in module body
-        for stmt in ast_node.body:
-            parents = self.walk(stmt, parents)
-
-        return parents
-
-    def on_functiondef(self, ast_node, parents):
+    def visit_FunctionDef(self, ast_node):
         '''
         FunctionDef(identifier name, arguments args,
                     stmt* body, expr* decorator_list, expr? returns,
                     string? type_comment)
         '''
         # construct function name
-        if len(self.stack_class) > 0:
-            class_name = self.stack_class[-1]
+        if len(self._stack_class) > 0:
+            class_name = self._stack_class[-1]
             func_name = '%s.%s' % (class_name, ast_node.name)
         else:
             func_name = ast_node.name
+
+        # enter function body
+        self._stack_function.append(func_name)
+        self._stack_parents.append(set())
 
         # append definition node
         cn_def = self.add_node(
@@ -259,31 +246,25 @@ class ControlFlowGraph:
             type='def')
 
         # save function def
-        self.functions[func_name] = cn_def
-
-        # enter function body
-        self.stack_function.append(func_name)
+        self._functions[func_name] = cn_def
 
         # traverse each statement in function body
-        cn_body = {cn_def}
         for stmt in ast_node.body:
-            cn_body = self.walk(stmt, cn_body)
+            self.visit(stmt)
 
         # exit function body
-        self.stack_function.pop()
+        self._stack_function.pop()
+        self._stack_parents.pop()
 
-        # return original parents
-        return parents
-
-    def on_asyncfunctiondef(self, ast_node, parents):
+    def visit_AsyncFunctionDef(self, ast_node):
         '''
         AsyncFunctionDef(identifier name, arguments args,
                          stmt* body, expr* decorator_list, expr? returns,
                          string? type_comment)
         '''
-        return self.on_functiondef(ast_node, parents)
+        return self.visit_FunctionDef(ast_node)
 
-    def on_classdef(self, ast_node, parents):
+    def visit_ClassDef(self, ast_node):
         '''
         ClassDef(identifier name,
                  expr* bases,
@@ -292,333 +273,273 @@ class ControlFlowGraph:
                  expr* decorator_list)
         '''
         # enter class body
-        self.stack_class.append(ast_node.name)
+        self._stack_class.append(ast_node.name)
+        self._stack_parents.append(set())
+
+        # append definition node
+        self.add_node(
+            label='class %s' % (ast_node.name),
+            type='def')
 
         # traverse each statement in class body
-        cn_body = set()
         for stmt in ast_node.body:
-            cn_body = self.walk(stmt, cn_body)
+            self.visit(stmt)
 
         # exit class body
-        self.stack_class.pop()
+        self._stack_class.pop()
+        self._stack_parents.pop()
 
-        # return original parents
-        return parents
-
-    def on_return(self, ast_node, parents):
+    def visit_Return(self, ast_node):
         '''
         Return(expr? value)
         '''
         # append statement node
-        parents = {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-        # traverse return value
-        parents = self.walk(ast_node.value, parents)
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
-        # return has no immediate children
-        return set()
-
-    def on_delete(self, ast_node, parents):
+    def visit_Delete(self, ast_node):
         '''
         Delete(expr* targets)
         '''
         # append statement node
-        parents = {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-        # traverse delete targets
-        for target in ast_node.targets:
-            parents = self.walk(target, parents)
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
-        return parents
-
-    def on_assign(self, ast_node, parents):
+    def visit_Assign(self, ast_node):
         '''
         Assign(expr* targets, expr value)
         '''
         # append statement node
-        parents = {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-        # traverse assignment targets
-        for target in ast_node.targets:
-            parents = self.walk(target, parents)
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
-        # traverse assignment value
-        parents = self.walk(ast_node.value, parents)
-
-        return parents
-
-    def on_augassign(self, ast_node, parents):
+    def visit_AugAssign(self, ast_node):
         '''
         AugAssign(expr target, operator op, expr value)
         '''
         # append statement node
-        parents = {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-        # traverse assignment target
-        parents = self.walk(ast_node.target, parents)
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
-        # traverse assignment value
-        parents = self.walk(ast_node.value, parents)
-
-        return parents
-
-    def on_for(self, ast_node, parents):
+    def visit_For(self, ast_node):
         '''
         For(expr target, expr iter, stmt* body, stmt* orelse, string? type_comment)
         '''
         # append loop entry node
         cn_enter = self.add_node(
             label='for %s in %s' % (aup.unparse(ast_node.target).strip(), aup.unparse(ast_node.iter).strip()),
-            type='if',
-            parents=parents)
+            type='if')
 
         # traverse target and iter expressions
-        parents = self.walk(ast_node.target, {cn_enter})
-        parents = self.walk(ast_node.iter, parents)
+        self.visit(ast_node.target)
+        self.visit(ast_node.iter)
 
         # enter loop body
-        cn_exits = {self.add_node(label='', type='if_false', parents=parents)}
-        self.stack_loop.append([cn_enter, cn_exits])
+        cn_exits = {self.add_node(label='', type='if_false')}
+        self._stack_loop.append([cn_enter, cn_exits])
 
         # traverse each statement in loop body
-        parents = {self.add_node(label='', type='if_true', parents=parents)}
+        self.add_node(label='', type='if_true')
+
         for stmt in ast_node.body:
-            parents = self.walk(stmt, parents)
+            self.visit(stmt)
 
         # connect end of loop back to loop entry
-        cn_enter.add_parents(*parents)
+        cn_enter.add_parents(*self._stack_parents[-1])
 
         # exit loop body
-        self.stack_loop.pop()
+        self._stack_loop.pop()
+        self._stack_parents[-1] = cn_exits
 
-        # return loop exit nodes
-        return cn_exits
-
-    def on_asyncfor(self, ast_node, parents):
+    def visit_AsyncFor(self, ast_node):
         '''
         AsyncFor(expr target, expr iter, stmt* body, stmt* orelse, string? type_comment)
         '''
-        return self.on_for(ast_node, parents)
+        return self.visit_For(ast_node)
 
-    def on_while(self, ast_node, parents):
+    def visit_While(self, ast_node):
         '''
         While(expr test, stmt* body, stmt* orelse)
         '''
         # append loop entry node
         cn_enter = self.add_node(
             label='while %s' % (aup.unparse(ast_node.test).strip()),
-            type='if',
-            parents=parents)
+            type='if')
 
         # traverse test expression
-        parents = self.walk(ast_node.test, {cn_enter})
+        self.visit(ast_node.test)
 
         # enter loop body
-        cn_exits = {self.add_node(label='', type='if_false', parents=parents)}
-        self.stack_loop.append([cn_enter, cn_exits])
+        cn_exits = {self.add_node(label='', type='if_false')}
+        self._stack_loop.append([cn_enter, cn_exits])
 
         # traverse each statement in loop body
-        parents = {self.add_node(label='', type='if_true', parents=parents)}
+        self.add_node(label='', type='if_true')
+
         for stmt in ast_node.body:
-            parents = self.walk(stmt, parents)
+            self.visit(stmt)
 
         # connect end of loop back to loop entry
-        cn_enter.add_parents(*parents)
+        cn_enter.add_parents(*self._stack_parents[-1])
 
         # exit loop body
-        self.stack_loop.pop()
+        self._stack_loop.pop()
+        self._stack_parents[-1] = cn_exits
 
-        # return loop exit nodes
-        return cn_exits
-
-    def on_if(self, ast_node, parents):
+    def visit_If(self, ast_node):
         '''
         If(expr test, stmt* body, stmt* orelse)
         '''
         # append entry node
-        cn_test = self.add_node(
+        self.add_node(
             label='if %s' % (aup.unparse(ast_node.test).strip()),
-            type='if',
-            parents=parents)
+            type='if')
 
         # traverse test expression
-        parents = self.walk(ast_node.test, {cn_test})
+        self.visit(ast_node.test)
 
         # traverse each statement in the if branch
-        cn_if = {self.add_node(label='', type='if_true', parents=parents)}
+        self._stack_parents.append(self._stack_parents[-1])
+        self.add_node(label='', type='if_true')
+
         for stmt in ast_node.body:
-            cn_if = self.walk(stmt, cn_if)
+            self.visit(stmt)
+
+        cn_if = self._stack_parents.pop()
 
         # traverse each statement in the else branch
-        cn_else = {self.add_node(label='', type='if_false', parents=parents)}
+        self.add_node(label='', type='if_false')
+
         for stmt in ast_node.orelse:
-            cn_else = self.walk(stmt, cn_else)
+            self.visit(stmt)
 
-        return cn_if | cn_else
+        cn_else = self._stack_parents[-1]
+        self._stack_parents[-1] = cn_if | cn_else
 
-    def on_with(self, ast_node, parents):
+    def visit_With(self, ast_node):
         '''
         With(withitem* items, stmt* body, string? type_comment)
         '''
-        # append entry node
-        cn_enter = self.add_node(
-            label='with %s' % (', '.join(aup.unparse(item).strip() for item in ast_node.items)),
-            parents=parents)
+        # append with entry node
+        self.add_node(
+            label='with %s' % (', '.join(aup.unparse(item).strip() for item in ast_node.items)))
 
-        # traverse each statement in the with body
-        parents = {cn_enter}
-        for stmt in ast_node.body:
-            parents = self.walk(stmt, parents)
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
-        return parents
-
-    def on_asyncwith(self, ast_node, parents):
+    def visit_AsyncWith(self, ast_node):
         '''
         AsyncWith(withitem* items, stmt* body, string? type_comment)
         '''
-        return self.on_with(ast_node, parents)
+        return self.visit_With(ast_node)
 
-    def on_raise(self, ast_node, parents):
+    def visit_Raise(self, ast_node):
         '''
         Raise(expr? exc, expr? cause)
         '''
-        return {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-    def on_try(self, ast_node, parents):
+    def visit_Try(self, ast_node):
         '''
         Try(stmt* body, excepthandler* handlers, stmt* orelse, stmt* finalbody)
         '''
         # traverse each statement in the try body
         for stmt in ast_node.body:
-            parents = self.walk(stmt, parents)
+            self.visit(stmt)
 
         # traverse each statement in the finally body
         for stmt in ast_node.finalbody:
-            parents = self.walk(stmt, parents)
+            self.visit(stmt)
 
-        return parents
-
-    def on_assert(self, ast_node, parents):
+    def visit_Assert(self, ast_node):
         '''
         Assert(expr test, expr? msg)
         '''
         # append statement node
-        parents = {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-        # traverse test expression
-        parents = self.walk(ast_node.test, parents)
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
-        return parents
-
-    def on_import(self, ast_node, parents):
+    def visit_Import(self, ast_node):
         '''
         Import(alias* names)
         '''
-        return {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-    def on_importfrom(self, ast_node, parents):
+    def visit_ImportFrom(self, ast_node):
         '''
         ImportFrom(identifier? module, alias* names, int? level)
         '''
-        return {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-    def on_expr(self, ast_node, parents):
+    def visit_Expr(self, ast_node):
         '''
         Expr(expr body)
         '''
         # append statement node
-        parents = {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-        # traverse expression body
-        parents = self.walk(ast_node.value, parents)
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
-        return parents
-
-    def on_pass(self, ast_node, parents):
+    def visit_Pass(self, ast_node):
         '''
         Pass
         '''
-        return {self.add_node(ast_node, parents=parents)}
+        self.add_node(ast_node)
 
-    def on_break(self, ast_node, parents):
+    def visit_Break(self, ast_node):
         '''
         Break
         '''
         # retrieve parent loop
-        _, cn_exits = self.stack_loop[-1]
+        _, cn_exits = self._stack_loop[-1]
 
         # append break node to loop exit nodes
-        cn_break = self.add_node(ast_node, parents=parents)
-        cn_exits.add(cn_break)
+        cn_exits.add(self.add_node(ast_node))
 
         # break has no immediate children
-        return set()
+        self._stack_parents[-1] = set()
 
-    def on_continue(self, ast_node, parents):
+    def visit_Continue(self, ast_node):
         '''
         Continue
         '''
         # retrieve parent loop
-        cn_enter, _ = self.stack_loop[-1]
+        cn_enter, _ = self._stack_loop[-1]
 
         # connect continue node to loop entry
-        cn_continue = self.add_node(ast_node, parents=parents)
-        cn_enter.add_parents(cn_continue)
+        cn_enter.add_parents(self.add_node(ast_node))
 
         # continue has no other children
-        return set()
+        self._stack_parents[-1] = set()
 
 
     '''
-    The following section defines control flow handlers
-    for all expression types in the Python abstract grammar.
-
-    Since control flow nodes generally correspond to individual
-    statements, most expression handlers simply invoke traversals
-    of inner expressions for the purpose of tracing function calls.
+    The following section defines custom visitor methods
+    for expression types in the Python abstract grammar.
     '''
-    def on_binop(self, ast_node, parents):
-        '''
-        BinOp(expr left, operator op, expr right)
-        '''
-        parents = self.walk(ast_node.left, parents)
-        parents = self.walk(ast_node.right, parents)
-        return parents
-
-    def on_unaryop(self, ast_node, parents):
-        '''
-        UnaryOp(unaryop op, expr operand)
-        '''
-        return self.walk(ast_node.operand, parents)
-
-    def on_compare(self, ast_node, parents):
-        '''
-        Compare(expr left, cmpop* ops, expr* comparators)
-        '''
-        parents = self.walk(ast_node.left, parents)
-        parents = self.walk(ast_node.comparators[0], parents)
-        return parents
-
-    def on_call(self, ast_node, parents):
+    def visit_Call(self, ast_node):
         '''
         Call(expr func, expr* args, keyword* keywords)
         '''
         # add parents as callers of this function
         func_name = aup.unparse(ast_node.func).strip()
 
-        if func_name in self.functions:
-            cn_def = self.functions[func_name]
-            cn_def.add_callers(*parents)
+        if func_name in self._functions:
+            self._functions[func_name].add_callers(*self._stack_parents[-1])
 
-        # traverse each arg
-        for arg in ast_node.args:
-            parents = self.walk(arg, parents)
-
-        # traverse each keyword arg
-        for keyword in ast_node.keywords:
-            parents = self.walk(keyword.value, parents)
-
-        return parents
+        # traverse child nodes
+        self.generic_visit(ast_node)
 
 
 
