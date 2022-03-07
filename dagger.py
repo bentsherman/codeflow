@@ -483,11 +483,18 @@ class ControlFlowGraph(ast.NodeVisitor):
         '''
         Expr(expr body)
         '''
-        # append statement node
-        self.add_node(ast_node)
+        # determine whether expression has side-effects
+        has_effect = False
 
-        # traverse child nodes
-        self.generic_visit(ast_node)
+        for node in ast.walk(ast_node):
+            if node.__class__.__name__ in {'Yield', 'YieldFrom', 'Call'}:
+                has_effect = True
+                break
+
+        # append statement node if expression has side-effects
+        if has_effect:
+            self.add_node(ast_node)
+            self.generic_visit(ast_node)
 
     def visit_Pass(self, ast_node):
         '''

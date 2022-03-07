@@ -36,14 +36,8 @@ test_expr = (
 """
 digraph G {
 0 [label=start, peripheries=2, shape=oval];
-1 [label=10, peripheries=1, shape=rectangle];
+1 [label=stop, peripheries=2, shape=oval];
 0 -> 1  [color=black];
-2 [label="'a'", peripheries=1, shape=rectangle];
-1 -> 2  [color=black];
-3 [label="(10 + 1)", peripheries=1, shape=rectangle];
-2 -> 3  [color=black];
-4 [label=stop, peripheries=2, shape=oval];
-3 -> 4  [color=black];
 }
 """
 )
