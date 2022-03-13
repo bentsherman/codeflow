@@ -5,18 +5,22 @@ Generate control flow and data flow graphs of your Python code. Originally inspi
 ## Installation
 
 ```bash
+# install dependencies
 sudo apt install graphviz
 pip install -r requirements.txt
+
+# (optional) install as package
+pip install -e .
 ```
 
 ## Usage
 
 Generate example flow graphs:
 ```bash
-python dagger.py examples/*.py
+./cli examples/*.py
 ```
 
 Run unit tests:
 ```bash
-pytest
+python -m pytest
 ```

@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+import argparse
+import ast
+import astpretty
+
+import dagger.cfg as cfg
+
+
+
+if __name__ == '__main__':
+    # parse command-line arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('source_files', help='Python source files to visualize', nargs='*')
+    parser.add_argument('--source', help='Python source string to visualize')
+    parser.add_argument('--format', help='output format (raw, png)', default='png')
+    parser.add_argument('--print-ast', help='print abstract syntax tree', action='store_true')
+    parser.add_argument('--verbose', help='print verbose output', action='store_true')
+    parser.add_argument('--exclude-start-stop', help='exclude start/stop nodes', action='store_true')
+    parser.add_argument('--include-calls', help='include caller/callee edges', action='store_true')
+    parser.add_argument('--include-hidden', help='include hidden nodes', action='store_true')
+
+    args = parser.parse_args()
+
+    # print flow graph for source string if specified
+    if args.source:
+        # print ast if specified
+        if args.print_ast:
+            astpretty.pprint(ast.parse(args.source), indent='  ')
+
+        # generate control flow graph
+        G = cfg.ControlFlowGraph(verbose=args.verbose)
+        G.generate(args.source)
+
+        # print control flow nodes
+        if args.verbose:
+            print()
+            G.print_nodes()
+
+        # convert graph to dot format
+        G_dot = G.to_dot(
+            include_calls=args.include_calls,
+            include_hidden=args.include_hidden,
+            include_start_stop=not args.exclude_start_stop)
+
+        # print dot graph if specified
+        if args.verbose:
+            print()
+            print(G_dot.to_string())
+
+    # generate flow graph for each source file
+    for source_file in args.source_files:
+        print(source_file)
+
+        # load source file
+        with open(source_file, 'r') as f:
+            source_text = f.read().strip()
+
+        # print ast if specified
+        if args.print_ast:
+            astpretty.pprint(ast.parse(source_text), indent='  ')
+
+        # generate control flow graph
+        G = cfg.ControlFlowGraph(verbose=args.verbose)
+        G.generate(source_text)
+
+        # print control flow nodes
+        if args.verbose:
+            print()
+            G.print_nodes()
+
+        # convert graph to dot format
+        G_dot = G.to_dot(
+            include_calls=args.include_calls,
+            include_hidden=args.include_hidden,
+            include_start_stop=not args.exclude_start_stop)
+
+        # print dot graph if specified
+        if args.verbose:
+            print()
+            print(G_dot.to_string())
+
+        # save graph to file
+        ext = args.format
+        if ext == 'raw':
+            ext = 'dot'
+        path = '%s.%s' % (source_file, ext)
+
+        G_dot.write(path, format=args.format)

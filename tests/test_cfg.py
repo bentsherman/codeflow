@@ -1,10 +1,5 @@
 
-import os
-import sys
-
-sys.path.append(os.getcwd())
-
-import dagger
+import dagger.cfg as cfg
 
 
 
@@ -371,5 +366,5 @@ def test():
     ]
 
     for source_text, dot_graph in tests:
-        G_dot = dagger.ControlFlowGraph().generate(source_text).to_dot()
+        G_dot = cfg.ControlFlowGraph().generate(source_text).to_dot()
         assert G_dot.to_string() == dot_graph.lstrip()
