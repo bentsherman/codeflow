@@ -1,26 +1,14 @@
 # dagger
 
-Generate control flow and data flow graphs of your Python code. Originally inspired by [this blog post](https://rahul.gopinath.org/post/2019/12/08/python-controlflow/).
+Visualize your code to fail faster. Originally inspired by [this blog post](https://rahul.gopinath.org/post/2019/12/08/python-controlflow/).
 
-## Installation
+Currently planned languages include:
+- Groovy
+- Python
 
-```bash
-# install dependencies
-sudo apt install graphviz
-pip install -r requirements.txt
+Currently planned visualizations include:
+- control flow graph
+- data flow graph
+- sequence diagram
 
-# (optional) install as package
-pip install -e .
-```
-
-## Usage
-
-Generate example flow graphs:
-```bash
-./cli examples/*.py
-```
-
-Run unit tests:
-```bash
-python -m pytest
-```
+For the language-specific tool, visit the corresponding subdirectory for further instructions.

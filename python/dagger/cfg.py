@@ -5,9 +5,9 @@ import pydot
 
 
 
-class CFNode:
+class CFGNode:
     '''
-    CFNode represents a node in a control flow graph.
+    CFGNode represents a node in a control flow graph.
 
     :param id       node id in the control flow graph
     :param label    node label, usually the source text
@@ -96,17 +96,17 @@ class ControlFlowGraph(ast.NodeVisitor):
         '''
         # create node
         id = len(self._nodes)
-        cn = CFNode(
+        cn = CFGNode(
             id,
             label=label if label is not None else aup.unparse(ast_node).strip(),
             type=type,
-            preds=self._stack_preds[-1])
+            preds=self._stack_preds.pop())
 
         # add node to graph
         self._nodes[id] = cn
 
         # update graph state
-        self._stack_preds[-1] = {cn}
+        self._stack_preds.append({cn})
 
         return cn
 
@@ -238,14 +238,11 @@ class ControlFlowGraph(ast.NodeVisitor):
         self._stack_preds.append(set())
 
         # append definition node
-        cn_def = self.add_node(
+        self._functions[func_name] = self.add_node(
             label='def %s(%s)' % (func_name, ', '.join(a.arg for a in ast_node.args.args)),
             type='def')
 
-        # save function def
-        self._functions[func_name] = cn_def
-
-        # traverse each statement in function body
+        # visit each statement in function body
         for stmt in ast_node.body:
             self.visit(stmt)
 
@@ -278,7 +275,7 @@ class ControlFlowGraph(ast.NodeVisitor):
             label='class %s' % (ast_node.name),
             type='def')
 
-        # traverse each statement in class body
+        # visit each statement in class body
         for stmt in ast_node.body:
             self.visit(stmt)
 
@@ -293,7 +290,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         # append statement node
         self.add_node(ast_node)
 
-        # traverse child nodes
+        # visit child nodes
         self.generic_visit(ast_node)
 
     def visit_Delete(self, ast_node):
@@ -303,7 +300,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         # append statement node
         self.add_node(ast_node)
 
-        # traverse child nodes
+        # visit child nodes
         self.generic_visit(ast_node)
 
     def visit_Assign(self, ast_node):
@@ -313,7 +310,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         # append statement node
         self.add_node(ast_node)
 
-        # traverse child nodes
+        # visit child nodes
         self.generic_visit(ast_node)
 
     def visit_AugAssign(self, ast_node):
@@ -323,7 +320,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         # append statement node
         self.add_node(ast_node)
 
-        # traverse child nodes
+        # visit child nodes
         self.generic_visit(ast_node)
 
     def visit_For(self, ast_node):
@@ -335,7 +332,7 @@ class ControlFlowGraph(ast.NodeVisitor):
             label='for %s in %s' % (aup.unparse(ast_node.target).strip(), aup.unparse(ast_node.iter).strip()),
             type='if')
 
-        # traverse target and iter expressions
+        # visit target and iter expressions
         self.visit(ast_node.target)
         self.visit(ast_node.iter)
 
@@ -343,18 +340,18 @@ class ControlFlowGraph(ast.NodeVisitor):
         cn_exits = {self.add_node(label='', type='if_false')}
         self._stack_loop.append([cn_enter, cn_exits])
 
-        # traverse each statement in loop body
+        # visit each statement in loop body
         self.add_node(label='', type='if_true')
 
         for stmt in ast_node.body:
             self.visit(stmt)
 
         # connect end of loop back to loop entry
-        cn_enter.add_predecessors(*self._stack_preds[-1])
+        cn_enter.add_predecessors(*self._stack_preds.pop())
 
         # exit loop body
         self._stack_loop.pop()
-        self._stack_preds[-1] = cn_exits
+        self._stack_preds.append(cn_exits)
 
     def visit_AsyncFor(self, ast_node):
         '''
@@ -371,25 +368,25 @@ class ControlFlowGraph(ast.NodeVisitor):
             label='while %s' % (aup.unparse(ast_node.test).strip()),
             type='if')
 
-        # traverse test expression
+        # visit test expression
         self.visit(ast_node.test)
 
         # enter loop body
         cn_exits = {self.add_node(label='', type='if_false')}
         self._stack_loop.append([cn_enter, cn_exits])
 
-        # traverse each statement in loop body
+        # visit each statement in loop body
         self.add_node(label='', type='if_true')
 
         for stmt in ast_node.body:
             self.visit(stmt)
 
         # connect end of loop back to loop entry
-        cn_enter.add_predecessors(*self._stack_preds[-1])
+        cn_enter.add_predecessors(*self._stack_preds.pop())
 
         # exit loop body
         self._stack_loop.pop()
-        self._stack_preds[-1] = cn_exits
+        self._stack_preds.append(cn_exits)
 
     def visit_If(self, ast_node):
         '''
@@ -400,10 +397,10 @@ class ControlFlowGraph(ast.NodeVisitor):
             label='if %s' % (aup.unparse(ast_node.test).strip()),
             type='if')
 
-        # traverse test expression
+        # visit test expression
         self.visit(ast_node.test)
 
-        # traverse each statement in the if branch
+        # visit each statement in the if branch
         self._stack_preds.append(self._stack_preds[-1])
         self.add_node(label='', type='if_true')
 
@@ -412,14 +409,16 @@ class ControlFlowGraph(ast.NodeVisitor):
 
         cn_if = self._stack_preds.pop()
 
-        # traverse each statement in the else branch
+        # visit each statement in the else branch
         self.add_node(label='', type='if_false')
 
         for stmt in ast_node.orelse:
             self.visit(stmt)
 
-        cn_else = self._stack_preds[-1]
-        self._stack_preds[-1] = cn_if | cn_else
+        cn_else = self._stack_preds.pop()
+
+        # combine nodes from both branches
+        self._stack_preds.append(cn_if | cn_else)
 
     def visit_With(self, ast_node):
         '''
@@ -429,7 +428,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         self.add_node(
             label='with %s' % (', '.join(aup.unparse(item).strip() for item in ast_node.items)))
 
-        # traverse child nodes
+        # visit child nodes
         self.generic_visit(ast_node)
 
     def visit_AsyncWith(self, ast_node):
@@ -448,11 +447,11 @@ class ControlFlowGraph(ast.NodeVisitor):
         '''
         Try(stmt* body, excepthandler* handlers, stmt* orelse, stmt* finalbody)
         '''
-        # traverse each statement in the try body
+        # visit each statement in the try body
         for stmt in ast_node.body:
             self.visit(stmt)
 
-        # traverse each statement in the finally body
+        # visit each statement in the finally body
         for stmt in ast_node.finalbody:
             self.visit(stmt)
 
@@ -463,7 +462,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         # append statement node
         self.add_node(ast_node)
 
-        # traverse child nodes
+        # visit child nodes
         self.generic_visit(ast_node)
 
     def visit_Import(self, ast_node):
@@ -542,5 +541,5 @@ class ControlFlowGraph(ast.NodeVisitor):
         if func_name in self._functions:
             self._functions[func_name].add_callers(*self._stack_preds[-1])
 
-        # traverse child nodes
+        # visit child nodes
         self.generic_visit(ast_node)
