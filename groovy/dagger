@@ -1,0 +1,294 @@
+#!/usr/bin/env groovy
+/**
+ * The following packages are automatically imported in Groovy:
+ *
+ *   import java.lang.* 
+ *   import java.util.* 
+ *   import java.io.* 
+ *   import java.net.* 
+ *
+ *   import groovy.lang.* 
+ *   import groovy.util.* 
+ *
+ *   import java.math.BigInteger 
+ *   import java.math.BigDecimal
+ */
+import org.codehaus.groovy.ast.*
+import org.codehaus.groovy.ast.builder.*
+import org.codehaus.groovy.ast.expr.*
+import org.codehaus.groovy.ast.stmt.*
+import org.codehaus.groovy.control.*
+
+
+public class CFGNode {
+    enum Type {
+        DEFINITION,
+        IF,
+        IF_TRUE,
+        IF_FALSE,
+        START,
+        STOP
+    }
+
+    int id
+    String label
+    Type type
+    Set preds
+
+    CFGNode(id, label, type, preds) {
+        this.id = id
+        this.label = label
+        this.type = type
+        this.preds = preds
+    }
+
+    void addPredecessors(preds) {
+        this.preds.addAll(preds)
+    }
+
+    boolean equals(CFGNode other) {
+        return this.id == other.id
+    }
+
+    int hashCode() {
+        return this.id
+    }
+
+    boolean isHidden() {
+        return !this.label
+    }
+
+    String toString() {
+        return "${id}:\"${label ?: type}\""
+    }
+}
+
+
+public class ControlFlowGraph extends ClassCodeVisitorSupport {
+    private Map nodes
+    private Map methods
+    private List stackClass
+    private List stackMethod
+    private List stackLoop
+    private List stackPreds
+
+    void generate(String sourceText) {
+        // initialize graph state
+        this.nodes = [:]
+        this.methods = [:]
+        this.stackClass = []
+        this.stackMethod = []
+        this.stackLoop = []
+        this.stackPreds = [[] as Set]
+
+        // append start node
+        this.addNode('start', CFGNode.Type.START)
+
+        // build abstract syntax tree of source text
+        final astBuilder = new AstBuilder()
+        final astNodes = astBuilder.buildFromString(CompilePhase.CONVERSION, false, sourceText)
+
+        // traverse abstract syntax tree
+        astNodes.each { astNode ->
+            if ( astNode instanceof ClassNode ) {
+                astNode.visitContents(this)
+            }
+            else {
+                astNode.visit(this)
+            }
+        }
+
+        // append stop node
+        this.addNode('stop', CFGNode.Type.STOP)
+    }
+
+    CFGNode addNode(label, type, astNode=null) {
+        // create node
+        final id = this.nodes.size()
+        final cn = new CFGNode(
+            id,
+            label != null ? label : astNode.getText(),
+            type,
+            this.stackPreds.removeLast())
+
+        // add node to graph
+        this.nodes[id] = cn
+
+        // update graph state
+        this.stackPreds << [cn] as Set
+
+        return cn
+    }
+
+    String renderDot() {
+        // define helper functions
+        def node_peripheries = { cn ->
+            switch ( cn.type ) {
+            case CFGNode.Type.START:
+            case CFGNode.Type.STOP:
+            case CFGNode.Type.DEFINITION:
+                return 2
+            default:
+                return 1
+            }
+        }
+
+        def node_shape = { cn ->
+            switch ( cn.type ) {
+            case CFGNode.Type.START:
+            case CFGNode.Type.STOP:
+            case CFGNode.Type.DEFINITION:
+                return 'oval'
+            case CFGNode.Type.IF:
+                return 'diamond'
+            default:
+                return 'rectangle'
+            }
+        }
+
+        def edge_color = { cnSource, cnDest ->
+            switch ( cnSource.type ) {
+            case CFGNode.Type.IF_TRUE:
+                return 'blue'
+            case CFGNode.Type.IF_FALSE:
+                return 'red'
+            default:
+                return 'black'
+            }
+        }
+
+        // initialize dot graph
+        final result = []
+        result << "digraph G {"
+
+        // iterate through each node
+        final nodes = this.nodes.values()
+
+        nodes.each { cn ->
+            // add node to dot graph
+            result << "${cn.id} [label=\"${cn.label.replaceAll('\"', '\\\\\"')}\", peripheries=${node_peripheries(cn)}, shape=${node_shape(cn)}];"
+
+            // connect predecessors to node
+            cn.preds.each { cnPred ->
+                // get edge color
+                final color = edge_color(cnPred, cn)
+
+                // connect node to predecessor
+                result << "${cnPred.id} -> ${cn.id}  [color=${color}];"
+            }
+        }
+
+        // finalize dot graph
+        result << "}"
+
+        return result.join('\n')
+    }
+
+    @Override
+    void visitBlockStatement(BlockStatement block) {
+        block.getStatements().each { statement ->
+            statement.visit(this)
+        }
+    }
+
+    @Override
+    void visitClass(ClassNode node) {
+        // enter class body
+        this.stackClass << node.getName()
+        this.stackPreds << [] as Set
+
+        // append definition node
+        this.addNode("class ${node.getName()}", CFGNode.Type.DEFINITION)
+
+        // visit statement in class body
+        // TODO: ???
+
+        // exit class body
+        this.stackClass.removeLast()
+        this.stackPreds.removeLast()
+    }
+
+    @Override
+    void visitIfElse(IfStatement statement) {
+        // append entry node
+        final testExpression = statement.getBooleanExpression()
+        this.addNode("if ${testExpression.getText()}", CFGNode.Type.IF)
+
+        // visit test expression
+        testExpression.visit(this)
+
+        // visit each statement in the if branch
+        this.stackPreds << this.stackPreds[-1]
+        this.addNode("", CFGNode.Type.IF_TRUE)
+
+        statement.getIfBlock().visit(this)
+
+        final cnIf = this.stackPreds.removeLast()
+
+        // visit each statement in the else branch
+        this.addNode("", CFGNode.Type.IF_FALSE)
+
+        statement.getElseBlock().visit(this)
+
+        final cnElse = this.stackPreds.removeLast()
+
+        // merge nodes from both branches
+        this.stackPreds << (cnIf + cnElse)
+    }
+
+    @Override
+    void visitMethod(MethodNode node) {
+        // construct method name
+        final methodName = node.getName()
+
+        // enter method body
+        this.stackMethod << methodName
+        this.stackPreds << [] as Set
+
+        // append definition node
+        this.methods[methodName] = this.addNode("def ${methodName}", CFGNode.Type.DEFINITION)
+
+        // visit each statement in method body
+        node.getCode().visit(this)
+
+        // exit method body
+        this.stackMethod.removeLast()
+        this.stackPreds.removeLast()
+    }
+
+    @Override
+    void visitStatement(Statement statement) {
+        this.addNode(null, null, statement)
+    }
+
+    @Override
+    protected SourceUnit getSourceUnit() {
+        throw new Exception("not implemented")
+    }
+}
+
+
+void main() {
+    // parse command-line arguments
+    if ( args.length != 1 ) {
+        println("usage: ./dagger <source-file>")
+        System.exit(-1)
+    }
+
+    final sourceFilename = args[0]
+
+    // load source file
+    final sourceText = new File(sourceFilename).text
+
+    // build control flow graph
+    final cfg = new ControlFlowGraph()
+    cfg.generate(sourceText)
+
+    // print dot graph
+    final dot = cfg.renderDot()
+
+    println(dot)
+}
+
+
+main()
