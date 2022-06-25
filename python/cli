@@ -6,13 +6,12 @@ import astpretty
 import dagger.cfg as cfg
 
 
-
 if __name__ == '__main__':
     # parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('source_files', help='Python source files to visualize', nargs='*')
     parser.add_argument('--source', help='Python source string to visualize')
-    parser.add_argument('--format', help='output format (raw, png)', default='png')
+    parser.add_argument('--format', help='output format (dot, mmd, png)', default='png', choices=['dot', 'mmd', 'png'])
     parser.add_argument('--print-ast', help='print abstract syntax tree', action='store_true')
     parser.add_argument('--verbose', help='print verbose output', action='store_true')
     parser.add_argument('--exclude-start-stop', help='exclude start/stop nodes', action='store_true')
@@ -36,14 +35,13 @@ if __name__ == '__main__':
             print()
             G.print_nodes()
 
-        # convert graph to dot format
-        G_dot = G.to_dot(
-            include_calls=args.include_calls,
-            include_hidden=args.include_hidden,
-            include_start_stop=not args.exclude_start_stop)
-
         # print dot graph if specified
         if args.verbose:
+            G_dot = G.to_dot(
+                include_calls=args.include_calls,
+                include_hidden=args.include_hidden,
+                include_start_stop=not args.exclude_start_stop)
+
             print()
             print(G_dot.to_string())
 
@@ -68,21 +66,30 @@ if __name__ == '__main__':
             print()
             G.print_nodes()
 
-        # convert graph to dot format
-        G_dot = G.to_dot(
-            include_calls=args.include_calls,
-            include_hidden=args.include_hidden,
-            include_start_stop=not args.exclude_start_stop)
+        # render graph to specified format
+        if args.format in {'dot', 'png'}:
+            # convert graph to dot format
+            G_dot = G.to_dot(
+                include_calls=args.include_calls,
+                include_hidden=args.include_hidden,
+                include_start_stop=not args.exclude_start_stop)
 
-        # print dot graph if specified
-        if args.verbose:
-            print()
-            print(G_dot.to_string())
+            # print dot graph if specified
+            if args.verbose:
+                print()
+                print(G_dot.to_string())
 
-        # save graph to file
-        ext = args.format
-        if ext == 'raw':
-            ext = 'dot'
-        path = '%s.%s' % (source_file, ext)
+            # render image if specified
+            if args.format == 'png':
+                path = '%s.%s' % (source_file, args.format)
+                G_dot.write(path, format=args.format)
 
-        G_dot.write(path, format=args.format)
+        if args.format == 'mmd':
+            # convert graph to mmd format
+            G_mmd = G.to_mmd(
+                include_calls=args.include_calls,
+                include_hidden=args.include_hidden,
+                include_start_stop=not args.exclude_start_stop)
+
+            # print mmd diagram
+            print(G_mmd)

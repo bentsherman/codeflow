@@ -4,7 +4,6 @@ import astunparse as aup
 import pydot
 
 
-
 class CFGNode:
     '''
     CFGNode represents a node in a control flow graph.
@@ -46,7 +45,6 @@ class CFGNode:
     def add_callers(self, *args):
         for other in args:
             self.callers.add(other)
-
 
 
 class ControlFlowGraph(ast.NodeVisitor):
@@ -197,6 +195,63 @@ class ControlFlowGraph(ast.NodeVisitor):
                         style='dotted'))
 
         return G
+
+    def to_mmd(self, include_calls=False, include_hidden=False, include_start_stop=True):
+        '''
+        Convert a control flow graph to Mermaid notation.
+
+        :param include_calls
+        :param include_hidden
+        :param include_start_stop
+        '''
+        # initialize diagram
+        lines = []
+        lines.append('flowchart TD')
+
+        # skip start/stop nodes if enabled
+        nodes = self._nodes.values()
+
+        if not include_start_stop:
+            nodes = {cn for cn in nodes if cn.type not in {'start', 'stop'}}
+
+        # iterate through control flow nodes
+        for cn in nodes:
+            # skip hidden nodes if enabled
+            if not include_hidden and cn.is_hidden():
+                continue
+
+            # add node to dot graph
+            if cn.type in {'start', 'stop', 'def'}:
+                lines.append('    p%d((("%s")))' % (cn.id, cn.label))
+            elif cn.type in {'if'}:
+                lines.append('    p%d{"%s"}' % (cn.id, cn.label))
+            else:
+                lines.append('    p%d("%s")' % (cn.id, cn.label))
+
+            # connect predecessors to node
+            for cn_pred in cn.preds:
+                # get edge type
+                cn_pred_type = cn_pred.type
+
+                # skip hidden predecessors if enabled
+                if not include_hidden:
+                    while cn_pred.is_hidden():
+                        cn_pred = list(cn_pred.preds)[0]
+
+                # connect node to predecessor
+                if cn_pred_type == 'if_true':
+                    lines.append('    p%d -->|True| p%d' % (cn_pred.id, cn.id))
+                elif cn_pred_type == 'if_false':
+                    lines.append('    p%d -->|False| p%d' % (cn_pred.id, cn.id))
+                else:
+                    lines.append('    p%d --> p%d' % (cn_pred.id, cn.id))
+
+            # connect callers to callees if enabled
+            if include_calls:
+                for cn_caller in cn.callers:
+                    lines.append('    p%d -.-> p%d' % (cn_caller.id, cn.id))
+
+        return '\n'.join(lines)
 
     def print_nodes(self):
         '''
