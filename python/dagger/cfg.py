@@ -1,7 +1,6 @@
 
 import ast
 import astunparse as aup
-import pydot
 
 
 class CFGNode:
@@ -103,7 +102,7 @@ class ControlFlowGraph(ast.NodeVisitor):
         # add node to graph
         self._nodes[id] = cn
 
-        # update graph state
+        # update predecessors
         self._stack_preds.append({cn})
 
         return cn
@@ -118,83 +117,6 @@ class ControlFlowGraph(ast.NodeVisitor):
             print('walk', ast_node.__class__.__name__, {p.id for p in self._stack_preds[-1]})
 
         super().visit(ast_node)
-
-    def to_dot(self, include_calls=False, include_hidden=False, include_start_stop=True):
-        '''
-        Convert a control flow graph to DOT notation.
-
-        :param include_calls
-        :param include_hidden
-        :param include_start_stop
-        '''
-        def node_peripheries(cn):
-            if cn.type in {'start', 'stop', 'def'}:
-                return '2'
-            return '1'
-
-        def node_shape(cn):
-            if cn.type in {'start', 'stop', 'def'}:
-                return 'oval'
-            if cn.type in {'if'}:
-                return 'diamond'
-            return 'rectangle'
-
-        def edge_color(cn_src, cn_dst=None):
-            colors = {
-                'if_true': 'blue',
-                'if_false': 'red'
-            }
-            if cn_src.type in colors:
-                return colors[cn_src.type]
-            return 'black'
-
-        # initialize graph
-        G = pydot.Dot(graph_type='digraph')
-
-        # skip start/stop nodes if enabled
-        nodes = self._nodes.values()
-
-        if not include_start_stop:
-            nodes = {cn for cn in nodes if cn.type not in {'start', 'stop'}}
-
-        # iterate through control flow nodes
-        for cn in nodes:
-            # skip hidden nodes if enabled
-            if not include_hidden and cn.is_hidden():
-                continue
-
-            # add node to dot graph
-            G.add_node(pydot.Node(
-                cn.id,
-                label=cn.label,
-                shape=node_shape(cn),
-                peripheries=node_peripheries(cn)))
-
-            # connect predecessors to node
-            for cn_pred in cn.preds:
-                # get edge color
-                color = edge_color(cn_pred)
-
-                # skip hidden predecessors if enabled
-                if not include_hidden:
-                    while cn_pred.is_hidden():
-                        cn_pred = list(cn_pred.preds)[0]
-
-                # connect node to predecessor
-                G.add_edge(pydot.Edge(
-                    cn_pred.id,
-                    cn.id,
-                    color=color))
-
-            # connect callers to callees if enabled
-            if include_calls:
-                for cn_caller in cn.callers:
-                    G.add_edge(pydot.Edge(
-                        cn_caller.id,
-                        cn.id,
-                        style='dotted'))
-
-        return G
 
     def to_mmd(self, include_calls=False, include_hidden=False, include_start_stop=True):
         '''
@@ -220,7 +142,7 @@ class ControlFlowGraph(ast.NodeVisitor):
             if not include_hidden and cn.is_hidden():
                 continue
 
-            # add node to dot graph
+            # add node to mmd graph
             if cn.type in {'start', 'stop', 'def'}:
                 lines.append('    p%d((("%s")))' % (cn.id, cn.label))
             elif cn.type in {'if'}:

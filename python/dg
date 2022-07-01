@@ -4,6 +4,44 @@ import ast
 import astpretty
 
 import dagger.cfg as cfg
+import dagger.dfg as dfg
+
+
+def create_cfg(source_text):
+    # generate control flow graph
+    G = cfg.ControlFlowGraph(verbose=args.verbose)
+    G.generate(source_text)
+
+    # print control flow nodes
+    if args.verbose:
+        print()
+        G.print_nodes()
+
+    # convert graph to mmd format
+    G_mmd = G.to_mmd(
+        include_calls=args.include_calls,
+        include_hidden=args.include_hidden,
+        include_start_stop=not args.exclude_start_stop)
+
+    # print mmd diagram
+    print(G_mmd)
+
+
+def create_dfg(source_text):
+    # generate data flow graph
+    G = dfg.DataFlowGraph(verbose=args.verbose)
+    G.generate(source_text)
+
+    # print data flow nodes
+    if args.verbose:
+        print()
+        G.print_nodes()
+
+    # convert graph to mmd format
+    G_mmd = G.to_mmd()
+
+    # print mmd diagram
+    print(G_mmd)
 
 
 if __name__ == '__main__':
@@ -11,7 +49,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('source_files', help='Python source files to visualize', nargs='*')
     parser.add_argument('--source', help='Python source string to visualize')
-    parser.add_argument('--format', help='output format (dot, mmd, png)', default='png', choices=['dot', 'mmd', 'png'])
+    parser.add_argument('--type', help='Type of graph to generate (cfg, dfg)', default='cfg', choices=['cfg', 'dfg'])
     parser.add_argument('--print-ast', help='print abstract syntax tree', action='store_true')
     parser.add_argument('--verbose', help='print verbose output', action='store_true')
     parser.add_argument('--exclude-start-stop', help='exclude start/stop nodes', action='store_true')
@@ -26,24 +64,12 @@ if __name__ == '__main__':
         if args.print_ast:
             astpretty.pprint(ast.parse(args.source), indent='  ')
 
-        # generate control flow graph
-        G = cfg.ControlFlowGraph(verbose=args.verbose)
-        G.generate(args.source)
+        # create specified flow graph
+        if args.type == 'cfg':
+            create_cfg(source_text)
 
-        # print control flow nodes
-        if args.verbose:
-            print()
-            G.print_nodes()
-
-        # print dot graph if specified
-        if args.verbose:
-            G_dot = G.to_dot(
-                include_calls=args.include_calls,
-                include_hidden=args.include_hidden,
-                include_start_stop=not args.exclude_start_stop)
-
-            print()
-            print(G_dot.to_string())
+        if args.type == 'dfg':
+            create_dfg(source_text)
 
     # generate flow graph for each source file
     for source_file in args.source_files:
@@ -57,39 +83,9 @@ if __name__ == '__main__':
         if args.print_ast:
             astpretty.pprint(ast.parse(source_text), indent='  ')
 
-        # generate control flow graph
-        G = cfg.ControlFlowGraph(verbose=args.verbose)
-        G.generate(source_text)
+        # create specified flow graph
+        if args.type == 'cfg':
+            create_cfg(source_text)
 
-        # print control flow nodes
-        if args.verbose:
-            print()
-            G.print_nodes()
-
-        # render graph to specified format
-        if args.format in {'dot', 'png'}:
-            # convert graph to dot format
-            G_dot = G.to_dot(
-                include_calls=args.include_calls,
-                include_hidden=args.include_hidden,
-                include_start_stop=not args.exclude_start_stop)
-
-            # print dot graph if specified
-            if args.verbose:
-                print()
-                print(G_dot.to_string())
-
-            # render image if specified
-            if args.format == 'png':
-                path = '%s.%s' % (source_file, args.format)
-                G_dot.write(path, format=args.format)
-
-        if args.format == 'mmd':
-            # convert graph to mmd format
-            G_mmd = G.to_mmd(
-                include_calls=args.include_calls,
-                include_hidden=args.include_hidden,
-                include_start_stop=not args.exclude_start_stop)
-
-            # print mmd diagram
-            print(G_mmd)
+        if args.type == 'dfg':
+            create_dfg(source_text)
