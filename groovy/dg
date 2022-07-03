@@ -120,68 +120,49 @@ public class ControlFlowGraph extends ClassCodeVisitorSupport {
         return cn
     }
 
-    String renderDot() {
-        // define helper functions
-        def node_peripheries = { cn ->
-            switch ( cn.type ) {
-            case CFGNode.Type.START:
-            case CFGNode.Type.STOP:
-            case CFGNode.Type.DEFINITION:
-                return 2
-            default:
-                return 1
-            }
-        }
-
-        def node_shape = { cn ->
-            switch ( cn.type ) {
-            case CFGNode.Type.START:
-            case CFGNode.Type.STOP:
-            case CFGNode.Type.DEFINITION:
-                return 'oval'
-            case CFGNode.Type.IF:
-                return 'diamond'
-            default:
-                return 'rectangle'
-            }
-        }
-
-        def edge_color = { cnSource, cnDest ->
-            switch ( cnSource.type ) {
-            case CFGNode.Type.IF_TRUE:
-                return 'blue'
-            case CFGNode.Type.IF_FALSE:
-                return 'red'
-            default:
-                return 'black'
-            }
-        }
-
-        // initialize dot graph
-        final result = []
-        result << "digraph G {"
+    String renderMmd() {
+        // initialize diagram
+        final lines = []
+        lines << "flowchart TD"
 
         // iterate through each node
         final nodes = this.nodes.values()
 
         nodes.each { cn ->
-            // add node to dot graph
-            result << "${cn.id} [label=\"${cn.label.replaceAll('\"', '\\\\\"')}\", peripheries=${node_peripheries(cn)}, shape=${node_shape(cn)}];"
+            // sanitize label
+            final label = cn.label.replaceAll('\"', '\\\\\"') ?: " "
+
+            // add node to mmd graph
+            switch ( cn.type ) {
+            case CFGNode.Type.START:
+            case CFGNode.Type.STOP:
+            case CFGNode.Type.DEFINITION:
+                lines << "    p${cn.id}(((\"${label}\")))"
+                break
+            case CFGNode.Type.IF:
+                lines << "    p${cn.id}{\"${label}\"}"
+                break
+            default:
+                lines << "    p${cn.id}(\"${label}\")"
+            }
 
             // connect predecessors to node
             cn.preds.each { cnPred ->
-                // get edge color
-                final color = edge_color(cnPred, cn)
-
                 // connect node to predecessor
-                result << "${cnPred.id} -> ${cn.id}  [color=${color}];"
+                switch ( cnPred.type ) {
+                case CFGNode.Type.IF_TRUE:
+                    lines << "    p${cnPred.id} -->|True| p${cn.id}"
+                    break
+                case CFGNode.Type.IF_FALSE:
+                    lines << "    p${cnPred.id} -->|False| p${cn.id}"
+                    break
+                default:
+                    lines << "    p${cnPred.id} --> p${cn.id}"
+                }
             }
         }
 
-        // finalize dot graph
-        result << "}"
-
-        return result.join('\n')
+        return lines.join('\n')
     }
 
     @Override
@@ -284,10 +265,10 @@ void main() {
     final cfg = new ControlFlowGraph()
     cfg.generate(sourceText)
 
-    // print dot graph
-    final dot = cfg.renderDot()
+    // print mermaid diagram
+    final mmd = cfg.renderMmd()
 
-    println(dot)
+    println(mmd)
 }
 
 
