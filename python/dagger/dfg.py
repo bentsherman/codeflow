@@ -2,6 +2,8 @@
 import ast
 import astunparse as aup
 
+from ordered_set import OrderedSet
+
 
 class DFNode:
     '''
@@ -17,11 +19,11 @@ class DFNode:
     - name:     named value (variable, function def, class def)
     - op:       function call or operator
     '''
-    def __init__(self, id, label='', type=None, preds=set()):
+    def __init__(self, id, label='', type=None, preds=OrderedSet()):
         self.id = id
         self.label = label
         self.type = type
-        self.preds = set(preds)
+        self.preds = OrderedSet(preds)
 
     def __hash__(self):
         return self.id
@@ -56,7 +58,7 @@ class DataFlowGraph(ast.NodeVisitor):
         self._nodes = {}
         self._stack_class = []
         self._stack_names = [{}]
-        self._stack_preds = [set()]
+        self._stack_preds = [OrderedSet()]
 
         # traverse abstract syntax tree of source text
         self.visit(ast.parse(source_text))
@@ -105,7 +107,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
         :param ast_nodes
         '''
-        self._stack_preds.append(set())
+        self._stack_preds.append(OrderedSet())
 
         for ast_node in ast_nodes:
             if ast_node:
@@ -113,7 +115,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
         return self._stack_preds.pop()
 
-    def add_node(self, label=None, type=None, preds=set()):
+    def add_node(self, label=None, type=None, preds=OrderedSet()):
         '''
         Add a node to the data flow graph.
 
@@ -382,8 +384,8 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         IfExp(expr test, expr body, expr orelse)
         '''
-        label = '{} if {} else {}'
-        preds = self.visit_with_preds(ast_node.body, ast_node.test, ast_node.orelse)
+        label = '{} ? {} : {}'
+        preds = self.visit_with_preds(ast_node.test, ast_node.body, ast_node.orelse)
 
         self.add_node(label=label, type='op', preds=preds)
 
@@ -462,10 +464,15 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         Call(expr func, expr* args, keyword* keywords)
         '''
-        label = '%s()' % (aup.unparse(ast_node.func).strip())
+        # append '()' to func node
+        dn_func = self.visit_with_preds(ast_node.func)[0]
         preds = self.visit_with_preds(*ast_node.args, *ast_node.keywords)
 
-        self.add_node(label=label, type='op', preds=preds)
+        dn_func.label = '%s()' % (dn_func.label)
+        dn_func.add_predecessors(*preds)
+
+        # update predecessors
+        self._stack_preds[-1].add(dn_func)
 
     def visit_Num(self, ast_node):
         '''
@@ -504,13 +511,19 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         Attribute(expr value, identifier attr, expr_context ctx)
         '''
-        self.add_node(label=aup.unparse(ast_node).strip(), type='op')
+        label = '.%s' % (ast_node.attr)
+        preds = self.visit_with_preds(ast_node.value)
+
+        self.add_node(label=label, type='op', preds=preds)
 
     def visit_Subscript(self, ast_node):
         '''
         Subscript(expr value, slice slice, expr_context ctx)
         '''
-        self.add_node(label=aup.unparse(ast_node).strip(), type='op')
+        label = '.[]'
+        preds = self.visit_with_preds(ast_node.value, ast_node.slice)
+
+        self.add_node(label=label, type='op', preds=preds)
 
     def visit_Name(self, ast_node):
         '''

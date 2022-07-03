@@ -49,7 +49,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('source_files', help='Python source files to visualize', nargs='*')
     parser.add_argument('--source', help='Python source string to visualize')
-    parser.add_argument('--type', help='Type of graph to generate (cfg, dfg)', default='cfg', choices=['cfg', 'dfg'])
+    parser.add_argument('--type', help='Type of graph to generate (cfg, dfg)', choices=['cfg', 'dfg'], default='dfg')
     parser.add_argument('--print-ast', help='print abstract syntax tree', action='store_true')
     parser.add_argument('--verbose', help='print verbose output', action='store_true')
     parser.add_argument('--exclude-start-stop', help='exclude start/stop nodes', action='store_true')
