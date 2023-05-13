@@ -2,76 +2,29 @@
 package dagger
 
 import groovy.transform.CompileStatic
+import groovy.transform.EqualsAndHashCode
+import groovy.transform.TupleConstructor
 import org.codehaus.groovy.ast.*
 import org.codehaus.groovy.ast.builder.*
 import org.codehaus.groovy.ast.expr.*
 import org.codehaus.groovy.ast.stmt.*
 import org.codehaus.groovy.control.*
 
-
-class CFGNode {
-    enum Type {
-        DEFINITION,
-        IF,
-        IF_TRUE,
-        IF_FALSE,
-        START,
-        STOP
-    }
-
-    int id
-    String label
-    Type type
-    Set preds
-
-    CFGNode(int id, String label, Type type, Set preds) {
-        this.id = id
-        this.label = label
-        this.type = type
-        this.preds = preds
-    }
-
-    void addPredecessors(Set preds) {
-        this.preds.addAll(preds)
-    }
-
-    boolean equals(CFGNode other) {
-        return this.id == other.id
-    }
-
-    int hashCode() {
-        return this.id
-    }
-
-    boolean isHidden() {
-        return !this.label
-    }
-
-    String toString() {
-        return "${id}:\"${label ?: type}\""
-    }
-}
-
-
+@CompileStatic
 class ControlFlowGraph extends ClassCodeVisitorSupport {
-    private Map nodes
-    private Map methods
-    private List stackClass
-    private List stackMethod
-    private List stackLoop
-    private List stackPreds
+    private Map<Integer,Node> nodes = [:]
+    private Map<String,Node> methods = [:]
+    private List<String> stackClass = []
+    private List<String> stackMethod = []
+    private List<Node> stackLoop = []
+    private List<Set<Node>> stackPreds
 
     void generate(String sourceText) {
         // initialize graph state
-        this.nodes = [:]
-        this.methods = [:]
-        this.stackClass = []
-        this.stackMethod = []
-        this.stackLoop = []
         this.stackPreds = [[] as Set]
 
         // append start node
-        this.addNode('start', CFGNode.Type.START)
+        this.addNode('start', Node.Type.START)
 
         // build abstract syntax tree of source text
         final astBuilder = new AstBuilder()
@@ -79,22 +32,20 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
 
         // traverse abstract syntax tree
         astNodes.each { astNode ->
-            if ( astNode instanceof ClassNode ) {
+            if ( astNode instanceof ClassNode )
                 astNode.visitContents(this)
-            }
-            else {
+            else
                 astNode.visit(this)
-            }
         }
 
         // append stop node
-        this.addNode('stop', CFGNode.Type.STOP)
+        this.addNode('stop', Node.Type.STOP)
     }
 
-    CFGNode addNode(String label, CFGNode.Type type, astNode=null) {
+    Node addNode(String label, Node.Type type, ASTNode astNode=null) {
         // create node
         final id = this.nodes.size()
-        final cn = new CFGNode(
+        final cn = new Node(
             id,
             label != null ? label : astNode.getText(),
             type,
@@ -104,7 +55,7 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
         this.nodes[id] = cn
 
         // update graph state
-        this.stackPreds << [cn] as Set
+        this.stackPreds << ([cn] as Set)
 
         return cn
     }
@@ -123,12 +74,12 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
 
             // add node to mmd graph
             switch ( cn.type ) {
-            case CFGNode.Type.START:
-            case CFGNode.Type.STOP:
-            case CFGNode.Type.DEFINITION:
+            case Node.Type.START:
+            case Node.Type.STOP:
+            case Node.Type.DEFINITION:
                 lines << "    p${cn.id}(((\"${label}\")))"
                 break
-            case CFGNode.Type.IF:
+            case Node.Type.IF:
                 lines << "    p${cn.id}{\"${label}\"}"
                 break
             default:
@@ -139,10 +90,10 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
             cn.preds.each { cnPred ->
                 // connect node to predecessor
                 switch ( cnPred.type ) {
-                case CFGNode.Type.IF_TRUE:
+                case Node.Type.IF_TRUE:
                     lines << "    p${cnPred.id} -->|True| p${cn.id}"
                     break
-                case CFGNode.Type.IF_FALSE:
+                case Node.Type.IF_FALSE:
                     lines << "    p${cnPred.id} -->|False| p${cn.id}"
                     break
                 default:
@@ -165,10 +116,10 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
     void visitClass(ClassNode node) {
         // enter class body
         this.stackClass << node.getName()
-        this.stackPreds << [] as Set
+        this.stackPreds << ([] as Set)
 
         // append definition node
-        this.addNode("class ${node.getName()}", CFGNode.Type.DEFINITION)
+        this.addNode("class ${node.getName()}", Node.Type.DEFINITION)
 
         // visit statement in class body
         // TODO: ???
@@ -182,21 +133,21 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
     void visitIfElse(IfStatement statement) {
         // append entry node
         final testExpression = statement.getBooleanExpression()
-        this.addNode("if ${testExpression.getText()}", CFGNode.Type.IF)
+        this.addNode("if ${testExpression.getText()}", Node.Type.IF)
 
         // visit test expression
         testExpression.visit(this)
 
         // visit each statement in the if branch
         this.stackPreds << this.stackPreds[-1]
-        this.addNode("", CFGNode.Type.IF_TRUE)
+        this.addNode("", Node.Type.IF_TRUE)
 
         statement.getIfBlock().visit(this)
 
         final cnIf = this.stackPreds.removeLast()
 
         // visit each statement in the else branch
-        this.addNode("", CFGNode.Type.IF_FALSE)
+        this.addNode("", Node.Type.IF_FALSE)
 
         statement.getElseBlock().visit(this)
 
@@ -213,10 +164,10 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
 
         // enter method body
         this.stackMethod << methodName
-        this.stackPreds << [] as Set
+        this.stackPreds << ([] as Set)
 
         // append definition node
-        this.methods[methodName] = this.addNode("def ${methodName}", CFGNode.Type.DEFINITION)
+        this.methods[methodName] = this.addNode("def ${methodName}", Node.Type.DEFINITION)
 
         // visit each statement in method body
         node.getCode().visit(this)
@@ -235,4 +186,36 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
     protected SourceUnit getSourceUnit() {
         throw new Exception("not implemented")
     }
+
+    @EqualsAndHashCode(includes=['id'])
+    @TupleConstructor
+    static class Node {
+        enum Type {
+            DEFINITION,
+            IF,
+            IF_TRUE,
+            IF_FALSE,
+            START,
+            STOP
+        }
+
+        int id
+        String label
+        Type type
+        Set<Node> preds
+
+        void addPredecessors(Set preds) {
+            this.preds.addAll(preds)
+        }
+
+        boolean isHidden() {
+            return !this.label
+        }
+
+        @Override
+        String toString() {
+            return "${id}:\"${label ?: type}\""
+        }
+    }
+
 }

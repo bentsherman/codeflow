@@ -1,18 +1,5 @@
 #!/usr/bin/env groovy
-/**
- * The following packages are automatically imported in Groovy:
- *
- *   import java.lang.* 
- *   import java.util.* 
- *   import java.io.* 
- *   import java.net.* 
- *
- *   import groovy.lang.* 
- *   import groovy.util.* 
- *
- *   import java.math.BigInteger 
- *   import java.math.BigDecimal
- */
+
 import dagger.ControlFlowGraph
 
 
@@ -23,10 +10,8 @@ void main() {
         System.exit(-1)
     }
 
-    final sourceFilename = args[0]
-
     // load source file
-    final sourceText = new File(sourceFilename).text
+    final sourceText = new File(args[0]).text
 
     // build control flow graph
     final cfg = new ControlFlowGraph()
