@@ -3,6 +3,7 @@ package dagger
 
 import java.nio.file.Paths
 
+import groovy.transform.CompileStatic
 import picocli.CommandLine
 import picocli.CommandLine.Command
 import picocli.CommandLine.Option
@@ -13,6 +14,7 @@ import picocli.CommandLine.Parameters
     mixinStandardHelpOptions = true,
     description = 'Generate flow graphs of Groovy code'
 )
+@CompileStatic
 class Launcher implements Runnable {
 
     @Parameters(description = 'Groovy source files')
@@ -25,22 +27,24 @@ class Launcher implements Runnable {
     void run() {
         // print flow graph for source string if specified
         if( source != null ) {
-            createCfg(sourceText)
+            renderCfg(source)
         }
 
         // print flow graph for each source file
         for( String sourceFile : sourceFiles ) {
-            println(sourceFile)
+            System.err.println(sourceFile)
 
+            // load source file
             final sourceText = Paths.get('..').resolve(sourceFile).text
-            createCfg(sourceText)
+
+            // render specified flow graph
+            renderCfg(sourceText)
         }
     }
 
-    protected void createCfg(String sourceText) {
+    protected void renderCfg(String sourceText) {
         // build control flow graph
-        final cfg = new ControlFlowGraph()
-        cfg.build(sourceText)
+        final cfg = ControlFlowGraph.build(sourceText)
 
         // print mermaid diagram
         final mmd = cfg.renderDiagram()

@@ -5,10 +5,11 @@ import groovy.transform.CompileStatic
 import groovy.transform.EqualsAndHashCode
 import groovy.transform.TupleConstructor
 import org.codehaus.groovy.ast.*
-import org.codehaus.groovy.ast.builder.*
+import org.codehaus.groovy.ast.builder.AstBuilder
 import org.codehaus.groovy.ast.expr.*
 import org.codehaus.groovy.ast.stmt.*
-import org.codehaus.groovy.control.*
+import org.codehaus.groovy.control.CompilePhase
+import org.codehaus.groovy.control.SourceUnit
 
 @CompileStatic
 class ControlFlowGraph extends ClassCodeVisitorSupport {
@@ -19,27 +20,32 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
     private List<Node> stackLoop = []
     private List<Set<Node>> stackPreds
 
-    void build(String sourceText) {
-        // initialize graph state
+    ControlFlowGraph() {
         stackPreds = [[] as Set]
+    }
+
+    static ControlFlowGraph build(String sourceText) {
+        final cfg = new ControlFlowGraph()
 
         // append start node
-        addNode('start', Node.Type.START)
+        cfg.addNode('start', Node.Type.START)
 
         // build abstract syntax tree of source text
-        final astBuilder = new AstBuilder()
-        final astNodes = astBuilder.buildFromString(CompilePhase.CONVERSION, false, sourceText)
+        final astNodes = new AstBuilder().buildFromString(CompilePhase.CONVERSION, false, sourceText)
 
-        // traverse abstract syntax tree
-        astNodes.each { astNode ->
-            if ( astNode instanceof ClassNode )
-                astNode.visitContents(this)
-            else
-                astNode.visit(this)
-        }
+        // visit script node
+        astNodes[0].visit(cfg)
+
+        // visit methods of script wrapper class
+        // skip auto-generated methods
+        final methodNodes = ((ClassNode)astNodes[1]).getMethods()
+        for( def methodNode : methodNodes.subList(2, methodNodes.size()) )
+            cfg.visitMethod(methodNode)
 
         // append stop node
-        addNode('stop', Node.Type.STOP)
+        cfg.addNode('stop', Node.Type.STOP)
+
+        return cfg
     }
 
     protected Node addNode(String label, Node.Type type, ASTNode astNode=null) {
@@ -68,12 +74,12 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
         // iterate through each node
         final nodes = nodes.values()
 
-        nodes.each { cn ->
+        for( def cn : nodes ) {
             // sanitize label
             final label = cn.label.replaceAll('\"', '\\\\\"') ?: " "
 
             // add node to mmd graph
-            switch ( cn.type ) {
+            switch( cn.type ) {
             case Node.Type.START:
             case Node.Type.STOP:
             case Node.Type.DEFINITION:
@@ -87,9 +93,9 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
             }
 
             // connect predecessors to node
-            cn.preds.each { cnPred ->
+            for( def cnPred : cn.preds ) {
                 // connect node to predecessor
-                switch ( cnPred.type ) {
+                switch( cnPred.type ) {
                 case Node.Type.IF_TRUE:
                     lines << "    p${cnPred.id} -->|True| p${cn.id}"
                     break
@@ -107,9 +113,8 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
 
     @Override
     void visitBlockStatement(BlockStatement block) {
-        block.getStatements().each { statement ->
+        for( def statement : block.getStatements() )
             statement.visit(this)
-        }
     }
 
     @Override
