@@ -1,4 +1,4 @@
-# dagger
+# codeflow
 
 Visualize your code to fail faster. Originally inspired by [this blog post](https://rahul.gopinath.org/post/2019/12/08/python-controlflow/).
 
