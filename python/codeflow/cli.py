@@ -3,37 +3,37 @@ import argparse
 import ast
 import astpretty
 
-import dagger.cfg as cfg
-import dagger.dfg as dfg
+import codeflow.cfg as cfg
+import codeflow.dfg as dfg
 
 
-def create_cfg(source_text):
+def create_cfg(source_text, **kwargs):
     # build control flow graph
-    G = cfg.ControlFlowGraph(verbose=args.verbose)
+    G = cfg.ControlFlowGraph(verbose=kwargs['verbose'])
     G.build(source_text)
 
     # print control flow nodes
-    if args.verbose:
+    if kwargs['verbose']:
         print()
         G.print_nodes()
 
     # convert graph to mmd format
     G_mmd = G.to_mmd(
-        include_calls=args.include_calls,
-        include_hidden=args.include_hidden,
-        include_start_stop=not args.exclude_start_stop)
+        include_calls=kwargs['include_calls'],
+        include_hidden=kwargs['include_hidden'],
+        include_start_stop=not kwargs['exclude_start_stop'])
 
     # print mmd diagram
     print(G_mmd)
 
 
-def create_dfg(source_text):
+def create_dfg(source_text, **kwargs):
     # build data flow graph
-    G = dfg.DataFlowGraph(verbose=args.verbose)
+    G = dfg.DataFlowGraph(verbose=kwargs['verbose'])
     G.build(source_text)
 
     # print data flow nodes
-    if args.verbose:
+    if kwargs['verbose']:
         print()
         G.print_nodes()
 
@@ -44,7 +44,7 @@ def create_dfg(source_text):
     print(G_mmd)
 
 
-if __name__ == '__main__':
+def main():
     # parse command-line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('source_files', help='Python source files to visualize', nargs='*')
@@ -57,6 +57,7 @@ if __name__ == '__main__':
     parser.add_argument('--include-hidden', help='include hidden nodes', action='store_true')
 
     args = parser.parse_args()
+    kwargs = vars(args)
 
     # print flow graph for source string if specified
     if args.source:
@@ -66,14 +67,15 @@ if __name__ == '__main__':
 
         # create specified flow graph
         if args.type == 'cfg':
-            create_cfg(args.source)
+            create_cfg(args.source, **kwargs)
 
         if args.type == 'dfg':
-            create_dfg(args.source)
+            create_dfg(args.source, **kwargs)
 
     # print flow graph for each source file
     for source_file in args.source_files:
-        print(source_file)
+        if len(args.source_files) > 1:
+            print(source_file)
 
         # load source file
         with open(source_file, 'r') as f:
@@ -85,7 +87,11 @@ if __name__ == '__main__':
 
         # create specified flow graph
         if args.type == 'cfg':
-            create_cfg(source_text)
+            create_cfg(source_text, **kwargs)
 
         if args.type == 'dfg':
-            create_dfg(source_text)
+            create_dfg(source_text, **kwargs)
+
+
+if __name__ == '__main__':
+    main()

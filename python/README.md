@@ -1,14 +1,12 @@
-# dagger-python
+# codeflow-python
 
 Visualization tool for Python source code.
 
 ## Installation
 
 ```bash
-# install dependencies
-pip install -r requirements.txt
-
-# (optional) install as package
+# install codeflow package
+# (optional) specify -e to allow editing source files
 pip install -e .
 ```
 
@@ -16,7 +14,7 @@ pip install -e .
 
 Generate example flow graphs:
 ```bash
-./dg examples/*.py
+codeflow examples/*.py
 ```
 
 Run unit tests:

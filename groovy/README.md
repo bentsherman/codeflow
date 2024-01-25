@@ -1,4 +1,4 @@
-# dagger-groovy
+# codeflow-groovy
 
 Visualization tool for Groovy source code.
 
@@ -10,5 +10,5 @@ Install Java and Groovy using [SDKMAN!](https://sdkman.io/).
 
 Generate example flow graphs:
 ```bash
-./dg examples/*.groovy
+./codeflow examples/*.groovy
 ```

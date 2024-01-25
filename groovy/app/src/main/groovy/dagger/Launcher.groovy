@@ -1,5 +1,5 @@
 
-package dagger
+package codeflow
 
 import java.nio.file.Paths
 
@@ -10,7 +10,7 @@ import picocli.CommandLine.Option
 import picocli.CommandLine.Parameters
 
 @Command(
-    name = 'dg',
+    name = 'codeflow',
     mixinStandardHelpOptions = true,
     description = 'Generate flow graphs of Groovy code'
 )

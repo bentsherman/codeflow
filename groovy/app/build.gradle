@@ -24,7 +24,7 @@ java {
 }
 
 application {
-    mainClass = 'dagger.Launcher'
+    mainClass = 'codeflow.Launcher'
 }
 
 tasks.named('test') {
