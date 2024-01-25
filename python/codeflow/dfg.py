@@ -297,10 +297,25 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         If(expr test, stmt* body, stmt* orelse)
         '''
-        label = 'if'
-        preds = self.visit_with_preds(ast_node.test, *ast_node.body, *ast_node.orelse)
+        # determine predecessors for condition and true, false branches
+        test = self.visit_with_preds(ast_node.test)[0]
+        preds_true = self.visit_with_preds(*ast_node.body)
+        preds_false = self.visit_with_preds(*ast_node.orelse)
 
-        self.add_node(label=label, type='op', preds=preds)
+        # determine shared branch outputs
+        outs_true = set(dn.label for dn in preds_true if dn.type == 'name')
+        outs_false = set(dn.label for dn in preds_false if dn.type == 'name')
+        outputs = outs_true.intersection(outs_false)
+        preds_true = [dn for dn in preds_true if dn.label in outputs]
+        preds_false = [dn for dn in preds_false if dn.label in outputs]
+
+        # append if node
+        dn_true = self.add_node(label='true', type='op', preds=preds_true)
+        dn_false = self.add_node(label='false', type='op', preds=preds_false)
+        dn_if = self.add_node(label='if', type='op', preds=[test, dn_true, dn_false])
+
+        for output in outputs:
+            self.put_symbol(output, self.add_node(label=output, type='name', preds=[dn_if]))
 
     def visit_With(self, ast_node):
         '''
@@ -326,7 +341,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = 'try'
         preds = self.visit_with_preds(*ast_node.body, *ast_node.finalbody)
 
-        dn = self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label=label, type='op', preds=preds)
 
     def visit_Assert(self, ast_node):
         '''
