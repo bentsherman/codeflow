@@ -23,11 +23,18 @@ class Launcher implements Runnable {
     @Option(names = ['--source'], description = 'Groovy source string')
     String source
 
+    @Option(names = ['--type'], description = 'Type of graph to build')
+    String type = 'cfg'
+
     @Override
     void run() {
         // print flow graph for source string if specified
         if( source != null ) {
-            renderCfg(source)
+            if( type == 'cfg' )
+                renderCfg(source)
+
+            if( type == 'dfg' )
+                renderDfg(source)
         }
 
         // print flow graph for each source file
@@ -38,7 +45,11 @@ class Launcher implements Runnable {
             final sourceText = Paths.get('..').resolve(sourceFile).text
 
             // render specified flow graph
-            renderCfg(sourceText)
+            if( type == 'cfg' )
+                renderCfg(sourceText)
+
+            if( type == 'dfg' )
+                renderDfg(sourceText)
         }
     }
 
@@ -48,6 +59,16 @@ class Launcher implements Runnable {
 
         // print mermaid diagram
         final mmd = cfg.renderDiagram()
+
+        println(mmd)
+    }
+
+    protected void renderDfg(String sourceText) {
+        // build data flow graph
+        final dfg = DataFlowGraph.build(sourceText)
+
+        // print mermaid diagram
+        final mmd = dfg.renderDiagram()
 
         println(mmd)
     }

@@ -210,7 +210,7 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
         Set<Node> preds
 
         void addPredecessors(Set preds) {
-            preds.addAll(preds)
+            this.preds.addAll(preds)
         }
 
         boolean isHidden() {
