@@ -48,9 +48,9 @@ class DataFlowGraph(ast.NodeVisitor):
     def __init__(self, verbose=False):
         self._verbose = verbose
 
-    def generate(self, source_text):
+    def build(self, source_text):
         '''
-        Construct the data flow graph for a source code string.
+        Build the data flow graph for a source code string.
 
         :param source_text
         '''
@@ -465,6 +465,7 @@ class DataFlowGraph(ast.NodeVisitor):
         Call(expr func, expr* args, keyword* keywords)
         '''
         # append '()' to func node
+        # TODO: prevent duplicate append '()' on each call
         dn_func = self.visit_with_preds(ast_node.func)[0]
         preds = self.visit_with_preds(*ast_node.args, *ast_node.keywords)
 

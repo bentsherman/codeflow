@@ -58,9 +58,9 @@ class ControlFlowGraph(ast.NodeVisitor):
     def __init__(self, verbose=False):
         self._verbose = verbose
 
-    def generate(self, source_text):
+    def build(self, source_text):
         '''
-        Construct the control flow graph for a source code string.
+        Build the control flow graph for a source code string.
 
         :param source_text
         '''

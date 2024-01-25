@@ -6,7 +6,6 @@ Visualization tool for Python source code.
 
 ```bash
 # install dependencies
-sudo apt install graphviz
 pip install -r requirements.txt
 
 # (optional) install as package
@@ -17,7 +16,7 @@ pip install -e .
 
 Generate example flow graphs:
 ```bash
-./cli examples/*.py
+./dg examples/*.py
 ```
 
 Run unit tests:

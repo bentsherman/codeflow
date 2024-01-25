@@ -8,9 +8,9 @@ import dagger.dfg as dfg
 
 
 def create_cfg(source_text):
-    # generate control flow graph
+    # build control flow graph
     G = cfg.ControlFlowGraph(verbose=args.verbose)
-    G.generate(source_text)
+    G.build(source_text)
 
     # print control flow nodes
     if args.verbose:
@@ -28,9 +28,9 @@ def create_cfg(source_text):
 
 
 def create_dfg(source_text):
-    # generate data flow graph
+    # build data flow graph
     G = dfg.DataFlowGraph(verbose=args.verbose)
-    G.generate(source_text)
+    G.build(source_text)
 
     # print data flow nodes
     if args.verbose:
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('source_files', help='Python source files to visualize', nargs='*')
     parser.add_argument('--source', help='Python source string to visualize')
-    parser.add_argument('--type', help='Type of graph to generate (cfg, dfg)', choices=['cfg', 'dfg'], default='dfg')
+    parser.add_argument('--type', help='Type of graph to build (cfg, dfg)', choices=['cfg', 'dfg'], default='dfg')
     parser.add_argument('--print-ast', help='print abstract syntax tree', action='store_true')
     parser.add_argument('--verbose', help='print verbose output', action='store_true')
     parser.add_argument('--exclude-start-stop', help='exclude start/stop nodes', action='store_true')
@@ -66,12 +66,12 @@ if __name__ == '__main__':
 
         # create specified flow graph
         if args.type == 'cfg':
-            create_cfg(source_text)
+            create_cfg(args.source)
 
         if args.type == 'dfg':
-            create_dfg(source_text)
+            create_dfg(args.source)
 
-    # generate flow graph for each source file
+    # print flow graph for each source file
     for source_file in args.source_files:
         print(source_file)
 
