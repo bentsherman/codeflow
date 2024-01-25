@@ -12,3 +12,15 @@ Currently planned visualizations include:
 - sequence diagram
 
 For the language-specific tool, visit the corresponding subdirectory for further instructions.
+
+## Usage
+
+To install Mermaid:
+```bash
+npm install -g @mermaid-js/mermaid-cli
+```
+
+To use the watcher script to automatically generate diagrams:
+```bash
+../watch.sh example.py 'codeflow example.py | mmdc -q -i- -o example.png'
+```
