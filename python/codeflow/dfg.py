@@ -5,11 +5,11 @@ import astunparse as aup
 from ordered_set import OrderedSet
 
 
-class DFNode:
+class Node:
     '''
-    DFNode represents a node in a data flow graph.
+    Node represents a node in a dataflow graph.
 
-    :param id     node id in the data flow graph
+    :param id     node id in the dataflow graph
     :param label  node label, usually the source text
     :param type   node type, used to control visual properties
     :param preds  node predecessors
@@ -41,7 +41,7 @@ class DFNode:
 
 class DataFlowGraph(ast.NodeVisitor):
     '''
-    A data flow graph models the flow of data through source code.
+    A dataflow graph models the flow of data through source code.
     A node represents a literal value, a variable, or a function, while
     an edge represents an input/output dependency between two nodes.
     '''
@@ -117,7 +117,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
     def add_node(self, label=None, type=None, preds=OrderedSet()):
         '''
-        Add a node to the data flow graph.
+        Add a node to the dataflow graph.
 
         :param label
         :param type
@@ -125,7 +125,7 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         # create node
         id = len(self._nodes)
-        dn = DFNode(id, label=label, type=type, preds=preds)
+        dn = Node(id, label=label, type=type, preds=preds)
 
         # add node to graph
         self._nodes[id] = dn
@@ -137,7 +137,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
     def to_mmd(self):
         '''
-        Convert a data flow graph to Mermaid notation.
+        Convert a dataflow graph to Mermaid notation.
 
         :param include_hidden
         '''
