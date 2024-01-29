@@ -357,6 +357,26 @@ class DataFlowGraph(ast.NodeVisitor):
     The following section defines custom visitor methods
     for expression types in the Python abstract grammar.
     '''
+    def inline_binary_op(self, op, left, right):
+        lhs = '_'
+        rhs = '_'
+        preds = []
+        if isinstance(left, ast.Constant):
+            lhs = left.value
+            preds += self.visit_with_preds(right)
+
+        if isinstance(right, ast.Constant):
+            rhs = right.value
+            preds += self.visit_with_preds(left)
+
+        if len(preds) == 0:
+            label = op
+            preds = self.visit_with_preds(left, right)
+        else:
+            label = f'{lhs} {op} {rhs}'
+
+        return label, preds
+
     def visit_BoolOp(self, ast_node):
         '''
         BoolOp(boolop op, expr* values)
@@ -370,8 +390,8 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         BinOp(expr left, operator op, expr right)
         '''
-        label = aup.Unparser.binop[ast_node.op.__class__.__name__]
-        preds = self.visit_with_preds(ast_node.left, ast_node.right)
+        op = aup.Unparser.binop[ast_node.op.__class__.__name__]
+        label, preds = self.inline_binary_op(op, ast_node.left, ast_node.right)
 
         self.add_node(label=label, type='op', preds=preds)
 
@@ -470,8 +490,12 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         Compare(expr left, cmpop* ops, expr* comparators)
         '''
-        label = ','.join(aup.Unparser.cmpops[op.__class__.__name__] for op in ast_node.ops)
-        preds = self.visit_with_preds(ast_node.left, *ast_node.comparators)
+        if len(ast_node.ops) == 1:
+            op = aup.Unparser.cmpops[ast_node.ops[0].__class__.__name__]
+            label, preds = self.inline_binary_op(op, ast_node.left, *ast_node.comparators)
+        else:
+            label = ','.join(aup.Unparser.cmpops[op.__class__.__name__] for op in ast_node.ops)
+            preds = self.visit_with_preds(ast_node.left, *ast_node.comparators)
 
         self.add_node(label=label, type='op', preds=preds)
 
