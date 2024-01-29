@@ -133,7 +133,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
         return self._stack_preds.pop()
 
-    def add_node(self, label=None, type=None, preds=OrderedSet()):
+    def add_node(self, label=None, type=None, preds=OrderedSet(), update_preds=True):
         '''
         Add a node to the dataflow graph.
 
@@ -149,7 +149,8 @@ class DataFlowGraph(ast.NodeVisitor):
         self._nodes[id] = dn
 
         # update predecessors
-        self._stack_preds[-1].add(dn)
+        if update_preds:
+            self._stack_preds[-1].add(dn)
 
         return dn
 
@@ -341,6 +342,8 @@ class DataFlowGraph(ast.NodeVisitor):
         preds = self.visit_with_preds(ast_node.target, ast_node.iter, *ast_node.body, *ast_node.orelse)
         self._stack_names.pop()
 
+        # TODO: emit assigned variables from for, while loops
+        #       then connect output variables to input variables
         self.add_node(label=label, type='op', preds=preds)
 
     def visit_AsyncFor(self, ast_node):
@@ -363,7 +366,7 @@ class DataFlowGraph(ast.NodeVisitor):
         If(expr test, stmt* body, stmt* orelse)
         '''
         # determine predecessors for condition and true, false branches
-        test = self.visit_with_preds(ast_node.test)[0]
+        dn_test = self.visit_with_preds(ast_node.test)[0]
         preds_true = self.visit_with_preds(*ast_node.body)
         preds_false = self.visit_with_preds(*ast_node.orelse)
 
@@ -377,7 +380,7 @@ class DataFlowGraph(ast.NodeVisitor):
         # append if node
         dn_true = self.add_node(label='true', type='op', preds=preds_true)
         dn_false = self.add_node(label='false', type='op', preds=preds_false)
-        dn_if = self.add_node(label='if', type='op', preds=[test, dn_true, dn_false])
+        dn_if = self.add_node(label='if', type='op', preds=[dn_test, dn_true, dn_false])
 
         for output in outputs:
             self.put_symbol(output, self.add_node(label=output, type='name', preds=[dn_if]))
@@ -484,10 +487,16 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         IfExp(expr test, expr body, expr orelse)
         '''
-        label = '{} ? {} : {}'
-        preds = self.visit_with_preds(ast_node.test, ast_node.body, ast_node.orelse)
+        # determine predecessors for condition and true, false expressions
+        dn_test = self.visit_with_preds(ast_node.test)[0]
+        body = self.visit_with_preds(ast_node.body)
+        orelse = self.visit_with_preds(ast_node.orelse)
 
-        self.add_node(label=label, type='op', preds=preds)
+        # append if node
+        dn_true = self.add_node(label='true', type='op', preds=body, update_preds=False)
+        dn_false = self.add_node(label='false', type='op', preds=orelse, update_preds=False)
+        self.add_node(label='if', type='op', preds=[dn_test, dn_true, dn_false])
+
 
     def visit_Dict(self, ast_node):
         '''
@@ -571,8 +580,6 @@ class DataFlowGraph(ast.NodeVisitor):
         # append '()' to func node
         if isinstance(ast_node.func, ast.Name):
             dn_func = self.add_node(label=ast_node.func.id, type='name')
-
-        # TODO: convert object expression to first argument
         else:
             dn_func = self.visit_with_preds(ast_node.func)[0]
 
