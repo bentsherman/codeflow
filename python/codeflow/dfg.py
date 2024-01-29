@@ -31,6 +31,10 @@ class Node:
     def __eq__(self, other):
         return self.id == other.id
 
+    def __repr__(self) -> str:
+        preds = ','.join(str(dn.id) for dn in self.preds)
+        return f"Node(id={self.id},label='{self.label}',type='{self.type}',preds=[{preds}])"
+
     def is_hidden(self):
         return self.type in {'constant'}
 
@@ -47,22 +51,33 @@ class DataFlowGraph(ast.NodeVisitor):
     '''
     def __init__(self, verbose=False):
         self._verbose = verbose
-
-    def build(self, source_text):
-        '''
-        Build the data flow graph for a source code string.
-
-        :param source_text
-        '''
-        # initialize graph state
+        self._inputs = {}
+        self._outputs = set()
+        self._functions = {}
         self._nodes = {}
         self._stack_class = []
         self._stack_names = [{}]
         self._stack_preds = [OrderedSet()]
 
-        # traverse abstract syntax tree of source text
-        self.visit(ast.parse(source_text))
+    def build(self, source_text):
+        '''
+        Build the dataflow graph for a source code string.
 
+        :param source_text
+        '''
+        self.visit(ast.parse(source_text))
+        return self
+
+    def build_from_nodes(self, inputs, *ast_nodes):
+        '''
+        Build the dataflow graph for a list of ast nodes.
+
+        :param inputs
+        :param ast_nodes
+        '''
+        self._inputs = {name: None for name in inputs}
+        for dn in ast_nodes:
+            self.visit(dn)
         return self
 
     def visit(self, ast_node):
@@ -94,6 +109,9 @@ class DataFlowGraph(ast.NodeVisitor):
 
         :param name
         '''
+        if name in self._inputs and self._inputs[name] is None:
+            self._inputs[name] = dn
+
         for names in self._stack_names[::-1]:
             if name in names:
                 names[name] = dn
@@ -145,20 +163,56 @@ class DataFlowGraph(ast.NodeVisitor):
         lines = []
         lines.append('flowchart TD')
 
+        # render body
+        lines.append('    subgraph main')
+        self.to_mmd_body(lines)
+        lines.append('    end')
+
+        # render each function def
+        for i, (name, subgraph) in enumerate(self._functions.items()):
+            lines.append('    subgraph %s' % (name))
+            subgraph.to_mmd_body(lines, prefix=f'f{i}_')
+            lines.append('    end')
+
+        return '\n'.join(lines)
+
+    def to_mmd_body(self, lines, prefix=''):
+        nodes = set(self._nodes.values())
+
+        # render inputs
+        if len(self._inputs) > 0:
+            inputs = set(self._inputs.values())
+            nodes -= inputs
+            lines.append('    subgraph " "')
+            for dn in inputs:
+                lines.append(f'    {prefix}v{dn.id}("{dn.label}")')
+            lines.append('    end')
+
+        # prepare outputs
+        outputs = None
+        if len(self._outputs) > 0:
+            outputs = set(self.get_symbol(name) for name in self._outputs)
+            nodes -= outputs
+
         # render each node
         for dn in self._nodes.values():
             label = dn.label \
                 .replace('\n', '\\n') \
                 .replace('\"', '\\"')
 
-            lines.append('    p%d("%s")' % (dn.id, label))
+            lines.append(f'    {prefix}v{dn.id}("{label}")')
+
+        # render outputs
+        if outputs is not None:
+            lines.append('    subgraph " "')
+            for dn in outputs:
+                lines.append(f'    {prefix}v{dn.id}("{dn.label}")')
+            lines.append('    end')
 
         # render each edge
         for dn in self._nodes.values():
             for dn_pred in dn.preds:
-                lines.append('    p%d --> p%d' % (dn_pred.id, dn.id))
-
-        return '\n'.join(lines)
+                lines.append(f'    {prefix}v{dn_pred.id} --> {prefix}v{dn.id}')
 
     def print_nodes(self):
         '''
@@ -193,12 +247,9 @@ class DataFlowGraph(ast.NodeVisitor):
         else:
             label = ast_node.name
 
-        self._stack_names.append({})
-        preds = self.visit_with_preds(*ast_node.body)
-        self._stack_names.pop()
-
-        dn = self.add_node(label=label, type='name', preds=preds)
-        self.put_symbol(label, dn)
+        # build subgraph of function def
+        inputs = [arg.arg for arg in ast_node.args.args]
+        self._functions[label] = DataFlowGraph(verbose=self._verbose).build_from_nodes(inputs, *ast_node.body)
 
     def visit_AsyncFunctionDef(self, ast_node):
         '''
@@ -225,6 +276,20 @@ class DataFlowGraph(ast.NodeVisitor):
 
         dn = self.add_node(label=label, type='name', preds=preds)
         self.put_symbol(label, dn)
+
+    def visit_Return(self, ast_node):
+        '''
+        Return(expr? value)
+        '''
+        value = ast_node.value
+        if isinstance(value, ast.Name):
+            self._outputs.add(value.id)
+            self.generic_visit(ast_node)
+        elif isinstance(value, ast.Tuple):
+            for elt in value.elts:
+                if isinstance(elt, ast.Name):
+                    self._outputs.add(elt.id)
+                self.generic_visit(elt)
 
     def visit_Delete(self, ast_node):
         '''
@@ -504,9 +569,14 @@ class DataFlowGraph(ast.NodeVisitor):
         Call(expr func, expr* args, keyword* keywords)
         '''
         # append '()' to func node
-        # TODO: prevent duplicate append '()' on each call
-        dn_func = self.visit_with_preds(ast_node.func)[0]
-        preds = self.visit_with_preds(*ast_node.args, *ast_node.keywords)
+        if isinstance(ast_node.func, ast.Name):
+            dn_func = self.add_node(label=ast_node.func.id, type='name')
+
+        # TODO: convert object expression to first argument
+        else:
+            dn_func = self.visit_with_preds(ast_node.func)[0]
+
+        preds = self.visit_with_preds(*ast_node.args)
 
         dn_func.label = '%s()' % (dn_func.label)
         dn_func.add_predecessors(*preds)
