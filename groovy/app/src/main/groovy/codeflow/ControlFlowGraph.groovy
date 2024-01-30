@@ -18,13 +18,12 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
     private List<String> stackClass = []
     private List<String> stackMethod = []
     private List<Node> stackLoop = []
-    private List<Set<Node>> stackPreds
+    private List<Set<Node>> stackPreds = [ [] as Set ]
 
     ControlFlowGraph() {
-        stackPreds = [[] as Set]
     }
 
-    static ControlFlowGraph build(String sourceText) {
+    static ControlFlowGraph fromString(String sourceText) {
         final cfg = new ControlFlowGraph()
 
         // append start node
@@ -66,7 +65,7 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
         return cn
     }
 
-    String renderDiagram() {
+    String render() {
         // initialize diagram
         final lines = []
         lines << "flowchart TD"
@@ -210,7 +209,7 @@ class ControlFlowGraph extends ClassCodeVisitorSupport {
         Set<Node> preds
 
         void addPredecessors(Set preds) {
-            preds.addAll(preds)
+            this.preds.addAll(preds)
         }
 
         boolean isHidden() {

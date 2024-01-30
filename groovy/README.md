@@ -10,5 +10,5 @@ Install Java and Groovy using [SDKMAN!](https://sdkman.io/).
 
 Generate example flow graphs:
 ```bash
-./codeflow examples/*.groovy
+./launch.sh examples/*.groovy
 ```
