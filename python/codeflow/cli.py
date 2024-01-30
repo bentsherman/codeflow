@@ -18,7 +18,7 @@ def create_cfg(source_text, **kwargs):
         G.print_nodes()
 
     # convert graph to mmd format
-    G_mmd = G.to_mmd(
+    G_mmd = G.render(
         include_calls=kwargs['include_calls'],
         include_hidden=kwargs['include_hidden'],
         include_start_stop=not kwargs['exclude_start_stop'])
@@ -38,7 +38,7 @@ def create_dfg(source_text, **kwargs):
         G.print_nodes()
 
     # convert graph to mmd format
-    G_mmd = G.to_mmd()
+    G_mmd = G.render()
 
     # print mmd diagram
     print(G_mmd)

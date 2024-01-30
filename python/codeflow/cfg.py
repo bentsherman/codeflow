@@ -118,7 +118,7 @@ class ControlFlowGraph(ast.NodeVisitor):
 
         super().visit(ast_node)
 
-    def to_mmd(self, include_calls=False, include_hidden=False, include_start_stop=True):
+    def render(self, include_calls=False, include_hidden=False, include_start_stop=True):
         '''
         Convert a control flow graph to Mermaid notation.
 

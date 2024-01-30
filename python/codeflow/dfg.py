@@ -2,7 +2,14 @@
 import ast
 import astunparse as aup
 
+from enum import Enum
 from ordered_set import OrderedSet
+
+
+class NodeType(Enum):
+    CONSTANT = 1    # constant value
+    NAME = 2        # named value (variable, class def)
+    OP = 3          # function call or operator
 
 
 class Node:
@@ -13,13 +20,8 @@ class Node:
     :param label  node label, usually the source text
     :param type   node type, used to control visual properties
     :param preds  node predecessors
-
-    The node type can be one of the following:
-    - constant: constant value
-    - name:     named value (variable, function def, class def)
-    - op:       function call or operator
     '''
-    def __init__(self, id, label='', type=None, preds=OrderedSet()):
+    def __init__(self, id, label, type, preds=OrderedSet()):
         self.id = id
         self.label = label
         self.type = type
@@ -36,7 +38,7 @@ class Node:
         return f"Node(id={self.id},label='{self.label}',type='{self.type}',preds=[{preds}])"
 
     def is_hidden(self):
-        return self.type in {'constant'}
+        return self.type in {NodeType.CONSTANT}
 
     def add_predecessors(self, *args):
         for dn in args:
@@ -76,8 +78,8 @@ class DataFlowGraph(ast.NodeVisitor):
         :param ast_nodes
         '''
         self._inputs = {name: None for name in inputs}
-        for dn in ast_nodes:
-            self.visit(dn)
+        for ast_node in ast_nodes:
+            self.visit(ast_node)
         return self
 
     def visit(self, ast_node):
@@ -97,9 +99,9 @@ class DataFlowGraph(ast.NodeVisitor):
 
         :param name
         '''
-        for names in self._stack_names[::-1]:
-            if name in names:
-                return names[name]
+        for scope in self._stack_names[::-1]:
+            if name in scope:
+                return scope[name]
 
         return None
 
@@ -112,9 +114,9 @@ class DataFlowGraph(ast.NodeVisitor):
         if name in self._inputs and self._inputs[name] is None:
             self._inputs[name] = dn
 
-        for names in self._stack_names[::-1]:
-            if name in names:
-                names[name] = dn
+        for scope in self._stack_names[::-1]:
+            if name in scope:
+                scope[name] = dn
                 return
 
         self._stack_names[-1][name] = dn
@@ -133,7 +135,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
         return self._stack_preds.pop()
 
-    def add_node(self, label=None, type=None, preds=OrderedSet(), update_preds=True):
+    def add_node(self, label, type, preds=OrderedSet(), update_preds=True):
         '''
         Add a node to the dataflow graph.
 
@@ -143,7 +145,7 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         # create node
         id = len(self._nodes)
-        dn = Node(id, label=label, type=type, preds=preds)
+        dn = Node(id, label, type, preds=preds)
 
         # add node to graph
         self._nodes[id] = dn
@@ -154,7 +156,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
         return dn
 
-    def to_mmd(self):
+    def render(self):
         '''
         Convert a dataflow graph to Mermaid notation.
 
@@ -165,38 +167,33 @@ class DataFlowGraph(ast.NodeVisitor):
         lines.append('flowchart TD')
 
         # render body
-        lines.append('    subgraph main')
-        self.to_mmd_body(lines)
-        lines.append('    end')
+        self.render_body('main', lines)
 
         # render each function def
         for i, (name, subgraph) in enumerate(self._functions.items()):
-            lines.append('    subgraph %s' % (name))
-            subgraph.to_mmd_body(lines, prefix=f'f{i}_')
-            lines.append('    end')
+            subgraph.render_body(name, lines, prefix=f'f{i}_')
 
         return '\n'.join(lines)
 
-    def to_mmd_body(self, lines, prefix=''):
-        nodes = set(self._nodes.values())
+    def render_body(self, name, lines, prefix=''):
+        lines.append(f'    subgraph {name}')
+
+        # prepare input and outputs
+        inputs = set(self._inputs.values())
+        outputs = set(self.get_symbol(name) for name in self._outputs)
 
         # render inputs
-        if len(self._inputs) > 0:
-            inputs = set(self._inputs.values())
-            nodes -= inputs
+        if len(inputs) > 0:
             lines.append('    subgraph " "')
             for dn in inputs:
                 lines.append(f'    {prefix}v{dn.id}("{dn.label}")')
             lines.append('    end')
 
-        # prepare outputs
-        outputs = None
-        if len(self._outputs) > 0:
-            outputs = set(self.get_symbol(name) for name in self._outputs)
-            nodes -= outputs
-
-        # render each node
+        # render nodes
         for dn in self._nodes.values():
+            if dn in inputs or dn in outputs:
+                continue
+
             label = dn.label \
                 .replace('\n', '\\n') \
                 .replace('\"', '\\"')
@@ -204,16 +201,18 @@ class DataFlowGraph(ast.NodeVisitor):
             lines.append(f'    {prefix}v{dn.id}("{label}")')
 
         # render outputs
-        if outputs is not None:
+        if len(outputs) > 0:
             lines.append('    subgraph " "')
             for dn in outputs:
                 lines.append(f'    {prefix}v{dn.id}("{dn.label}")')
             lines.append('    end')
 
-        # render each edge
+        # render edges
         for dn in self._nodes.values():
             for dn_pred in dn.preds:
                 lines.append(f'    {prefix}v{dn_pred.id} --> {prefix}v{dn.id}')
+
+        lines.append('    end')
 
     def print_nodes(self):
         '''
@@ -244,13 +243,13 @@ class DataFlowGraph(ast.NodeVisitor):
                     string? type_comment)
         '''
         if len(self._stack_class) > 0:
-            label = '%s.%s' % (self._stack_class[-1], ast_node.name)
+            name = f'{self._stack_class[-1]}.{ast_node.name}'
         else:
-            label = ast_node.name
+            name = ast_node.name
 
         # build subgraph of function def
         inputs = [arg.arg for arg in ast_node.args.args]
-        self._functions[label] = DataFlowGraph(verbose=self._verbose).build_from_nodes(inputs, *ast_node.body)
+        self._functions[name] = DataFlowGraph(verbose=self._verbose).build_from_nodes(inputs, *ast_node.body)
 
     def visit_AsyncFunctionDef(self, ast_node):
         '''
@@ -275,7 +274,7 @@ class DataFlowGraph(ast.NodeVisitor):
         self._stack_class.pop()
         self._stack_names.pop()
 
-        dn = self.add_node(label=label, type='name', preds=preds)
+        dn = self.add_node(label, NodeType.NAME, preds=preds)
         self.put_symbol(label, dn)
 
     def visit_Return(self, ast_node):
@@ -291,6 +290,8 @@ class DataFlowGraph(ast.NodeVisitor):
                 if isinstance(elt, ast.Name):
                     self._outputs.add(elt.id)
                 self.generic_visit(elt)
+        else:
+            self.generic_visit(ast_node)
 
     def visit_Delete(self, ast_node):
         '''
@@ -299,7 +300,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = 'del'
         preds = self.visit_with_preds(*ast_node.targets)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_Assign(self, ast_node):
         '''
@@ -324,14 +325,14 @@ class DataFlowGraph(ast.NodeVisitor):
         # append op node
         ast_node.target.ctx = ast.Load()
         dn = self.add_node(
-            label=aup.Unparser.binop[ast_node.op.__class__.__name__],
-            type='op',
+            aup.Unparser.binop[ast_node.op.__class__.__name__],
+            NodeType.OP,
             preds=self.visit_with_preds(ast_node.target, ast_node.value))
         ast_node.target.ctx = ast.Store()
 
         # append target node
         label = aup.unparse(ast_node.target).strip()
-        self.put_symbol(label, self.add_node(label=label, type='name', preds={dn}))
+        self.put_symbol(label, self.add_node(label, NodeType.NAME, preds={dn}))
 
     def visit_For(self, ast_node):
         '''
@@ -344,7 +345,7 @@ class DataFlowGraph(ast.NodeVisitor):
 
         # TODO: emit assigned variables from for, while loops
         #       then connect output variables to input variables
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_AsyncFor(self, ast_node):
         '''
@@ -359,7 +360,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = 'while'
         preds = self.visit_with_preds(ast_node.test, *ast_node.body, *ast_node.orelse)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_If(self, ast_node):
         '''
@@ -371,19 +372,19 @@ class DataFlowGraph(ast.NodeVisitor):
         preds_false = self.visit_with_preds(*ast_node.orelse)
 
         # determine shared branch outputs
-        outs_true = set(dn.label for dn in preds_true if dn.type == 'name')
-        outs_false = set(dn.label for dn in preds_false if dn.type == 'name')
+        outs_true = set(dn.label for dn in preds_true if dn.type == NodeType.NAME)
+        outs_false = set(dn.label for dn in preds_false if dn.type == NodeType.NAME)
         outputs = outs_true.intersection(outs_false)
         preds_true = [dn for dn in preds_true if dn.label in outputs]
         preds_false = [dn for dn in preds_false if dn.label in outputs]
 
         # append if node
-        dn_true = self.add_node(label='true', type='op', preds=preds_true)
-        dn_false = self.add_node(label='false', type='op', preds=preds_false)
-        dn_if = self.add_node(label='if', type='op', preds=[dn_test, dn_true, dn_false])
+        dn_true = self.add_node('true', NodeType.OP, preds=preds_true)
+        dn_false = self.add_node('false', NodeType.OP, preds=preds_false)
+        dn_if = self.add_node('if', NodeType.OP, preds=[dn_test, dn_true, dn_false])
 
         for output in outputs:
-            self.put_symbol(output, self.add_node(label=output, type='name', preds=[dn_if]))
+            self.put_symbol(output, self.add_node(output, NodeType.NAME, preds=[dn_if]))
 
     def visit_With(self, ast_node):
         '''
@@ -394,7 +395,7 @@ class DataFlowGraph(ast.NodeVisitor):
         preds = self.visit_with_preds(*ast_node.items, *ast_node.body)
         self._stack_names.pop()
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_AsyncWith(self, ast_node):
         '''
@@ -409,7 +410,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = 'try'
         preds = self.visit_with_preds(*ast_node.body, *ast_node.finalbody)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_Assert(self, ast_node):
         '''
@@ -418,7 +419,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = 'assert'
         preds = self.visit_with_preds(ast_node.test)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
 
     '''
@@ -437,11 +438,11 @@ class DataFlowGraph(ast.NodeVisitor):
             rhs = right.value
             preds += self.visit_with_preds(left)
 
-        if len(preds) == 0:
+        if len(preds) > 0:
+            label = f'{lhs} {op} {rhs}'
+        else:
             label = op
             preds = self.visit_with_preds(left, right)
-        else:
-            label = f'{lhs} {op} {rhs}'
 
         return label, preds
 
@@ -452,7 +453,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = aup.Unparser.boolops[ast_node.op.__class__]
         preds = self.visit_with_preds(*ast_node.values)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_BinOp(self, ast_node):
         '''
@@ -461,7 +462,7 @@ class DataFlowGraph(ast.NodeVisitor):
         op = aup.Unparser.binop[ast_node.op.__class__.__name__]
         label, preds = self.inline_binary_op(op, ast_node.left, ast_node.right)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_UnaryOp(self, ast_node):
         '''
@@ -470,7 +471,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = aup.Unparser.unop[ast_node.op.__class__.__name__]
         preds = self.visit_with_preds(ast_node.operand)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_Lambda(self, ast_node):
         '''
@@ -481,7 +482,7 @@ class DataFlowGraph(ast.NodeVisitor):
         preds = self.visit_with_preds(ast_node.args, ast_node.body)
         self._stack_names.pop()
 
-        self.add_node(label=label, type='name', preds=preds)
+        self.add_node(label, NodeType.NAME, preds=preds)
 
     def visit_IfExp(self, ast_node):
         '''
@@ -493,10 +494,9 @@ class DataFlowGraph(ast.NodeVisitor):
         orelse = self.visit_with_preds(ast_node.orelse)
 
         # append if node
-        dn_true = self.add_node(label='true', type='op', preds=body, update_preds=False)
-        dn_false = self.add_node(label='false', type='op', preds=orelse, update_preds=False)
-        self.add_node(label='if', type='op', preds=[dn_test, dn_true, dn_false])
-
+        dn_true = self.add_node('true', NodeType.OP, preds=body, update_preds=False)
+        dn_false = self.add_node('false', NodeType.OP, preds=orelse, update_preds=False)
+        self.add_node('if', NodeType.OP, preds=[dn_test, dn_true, dn_false])
 
     def visit_Dict(self, ast_node):
         '''
@@ -505,7 +505,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = '{:}'
         preds = self.visit_with_preds(*ast_node.keys, *ast_node.values)
 
-        self.add_node(label=label, type='constant', preds=preds)
+        self.add_node(label, NodeType.CONSTANT, preds=preds)
 
     def visit_Set(self, ast_node):
         '''
@@ -514,7 +514,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = '{}'
         preds = self.visit_with_preds(*ast_node.elts)
 
-        self.add_node(label=label, type='constant', preds=preds)
+        self.add_node(label, NodeType.CONSTANT, preds=preds)
 
     def visit_ListComp(self, ast_node):
         '''
@@ -525,7 +525,7 @@ class DataFlowGraph(ast.NodeVisitor):
         preds = self.visit_with_preds(*ast_node.generators, ast_node.elt)
         self._stack_names.pop()
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_SetComp(self, ast_node):
         '''
@@ -536,7 +536,7 @@ class DataFlowGraph(ast.NodeVisitor):
         preds = self.visit_with_preds(*ast_node.generators, ast_node.elt)
         self._stack_names.pop()
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_DictComp(self, ast_node):
         '''
@@ -547,7 +547,7 @@ class DataFlowGraph(ast.NodeVisitor):
         preds = self.visit_with_preds(*ast_node.generators, ast_node.key, ast_node.value)
         self._stack_names.pop()
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_GeneratorExp(self, ast_node):
         '''
@@ -558,7 +558,7 @@ class DataFlowGraph(ast.NodeVisitor):
         preds = self.visit_with_preds(*ast_node.generators, ast_node.elt)
         self._stack_names.pop()
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_Compare(self, ast_node):
         '''
@@ -571,7 +571,7 @@ class DataFlowGraph(ast.NodeVisitor):
             label = ','.join(aup.Unparser.cmpops[op.__class__.__name__] for op in ast_node.ops)
             preds = self.visit_with_preds(ast_node.left, *ast_node.comparators)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_Call(self, ast_node):
         '''
@@ -579,29 +579,29 @@ class DataFlowGraph(ast.NodeVisitor):
         '''
         # append '()' to func node
         if isinstance(ast_node.func, ast.Name):
-            dn_func = self.add_node(label=ast_node.func.id, type='name')
+            dn = self.add_node(ast_node.func.id, NodeType.NAME)
         else:
-            dn_func = self.visit_with_preds(ast_node.func)[0]
+            dn = self.visit_with_preds(ast_node.func)[0]
 
         preds = self.visit_with_preds(*ast_node.args)
 
-        dn_func.label = '%s()' % (dn_func.label)
-        dn_func.add_predecessors(*preds)
+        dn.label = f'{dn.label}()'
+        dn.add_predecessors(*preds)
 
         # update predecessors
-        self._stack_preds[-1].add(dn_func)
+        self._stack_preds[-1].add(dn)
 
     def visit_Num(self, ast_node):
         '''
         Num(object n)
         '''
-        self.add_node(label=str(ast_node.n), type='constant')
+        self.add_node(str(ast_node.n), NodeType.CONSTANT)
 
     def visit_Str(self, ast_node):
         '''
         Str(string s)
         '''
-        self.add_node(label='\'%s\'' % (ast_node.s), type='constant')
+        self.add_node('\'%s\'' % (ast_node.s), NodeType.CONSTANT)
 
     def visit_JoinedStr(self, ast_node):
         '''
@@ -610,28 +610,28 @@ class DataFlowGraph(ast.NodeVisitor):
         label = '\'%s\'' % (''.join(v.s if isinstance(v, ast.Str) else '{}' for v in ast_node.values))
         preds = self.visit_with_preds(*[v for v in ast_node.values if isinstance(v, ast.FormattedValue)])
 
-        self.add_node(label=label, type='constant', preds=preds)
+        self.add_node(label, NodeType.CONSTANT, preds=preds)
 
     def visit_Bytes(self, ast_node):
         '''
         Bytes(bytes s)
         '''
-        self.add_node(label=str(ast_node.s), type='constant')
+        self.add_node(str(ast_node.s), NodeType.CONSTANT)
 
     def visit_NameConstant(self, ast_node):
         '''
         NameConstant(singleton value)
         '''
-        self.add_node(label=str(ast_node.value), type='constant')
+        self.add_node(str(ast_node.value), NodeType.CONSTANT)
 
     def visit_Attribute(self, ast_node):
         '''
         Attribute(expr value, identifier attr, expr_context ctx)
         '''
-        label = '.%s' % (ast_node.attr)
+        label = f'.{ast_node.attr}'
         preds = self.visit_with_preds(ast_node.value)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_Subscript(self, ast_node):
         '''
@@ -640,7 +640,7 @@ class DataFlowGraph(ast.NodeVisitor):
         label = '.[]'
         preds = self.visit_with_preds(ast_node.value, ast_node.slice)
 
-        self.add_node(label=label, type='op', preds=preds)
+        self.add_node(label, NodeType.OP, preds=preds)
 
     def visit_Name(self, ast_node):
         '''
@@ -653,12 +653,12 @@ class DataFlowGraph(ast.NodeVisitor):
             if dn:
                 self._stack_preds[-1].add(dn)
             else:
-                self.put_symbol(label, self.add_node(label=label, type='name'))
+                self.put_symbol(label, self.add_node(label, NodeType.NAME))
 
         # add variable in store context to name table (overwrite any existing variable)
         elif isinstance(ast_node.ctx, ast.Store):
             label = aup.unparse(ast_node).strip()
-            self.put_symbol(label, self.add_node(label=label, type='name'))
+            self.put_symbol(label, self.add_node(label, NodeType.NAME))
 
         else:
             self.generic_visit(ast_node)
@@ -671,7 +671,7 @@ class DataFlowGraph(ast.NodeVisitor):
             label = '[]'
             preds = self.visit_with_preds(*ast_node.elts)
 
-            self.add_node(label=label, type='constant', preds=preds)
+            self.add_node(label, NodeType.CONSTANT, preds=preds)
 
         else:
             self.generic_visit(ast_node)
@@ -684,7 +684,7 @@ class DataFlowGraph(ast.NodeVisitor):
             label = '()'
             preds = self.visit_with_preds(*ast_node.elts)
 
-            self.add_node(label=label, type='constant', preds=preds)
+            self.add_node(label, NodeType.CONSTANT, preds=preds)
 
         else:
             self.generic_visit(ast_node)
@@ -697,11 +697,11 @@ class DataFlowGraph(ast.NodeVisitor):
         label = '::'
         preds = self.visit_with_preds(ast_node.lower, ast_node.upper, ast_node.step)
 
-        self.add_node(label=label, type='constant', preds=preds)
+        self.add_node(label, NodeType.CONSTANT, preds=preds)
 
     def visit_arg(self, ast_node):
         '''
         arg(identifier arg, expr? annotation)
         '''
         label = ast_node.arg
-        self._stack_names[-1][label] = self.add_node(label=label, type='name')
+        self._stack_names[-1][label] = self.add_node(label, NodeType.NAME)
